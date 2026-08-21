@@ -1,0 +1,73 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: forest-core-server-production
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: docker build -f dockerfile -t forest-core-server:verify .
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+
+            cd /home/ubuntu/server/forest-core-server
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            test -f .env
+
+            docker network inspect forest-backend >/dev/null 2>&1 || \
+              docker network create forest-backend
+
+            docker build \
+              -f dockerfile \
+              -t forest-core-server .
+
+            docker rm -f forest-core-server || true
+
+            docker run -d \
+              --name forest-core-server \
+              --restart unless-stopped \
+              --network forest-backend \
+              --log-opt max-size=10m \
+              --log-opt max-file=5 \
+              --env-file /home/ubuntu/server/forest-core-server/.env \
+              -p 127.0.0.1:18020:18020 \
+              forest-core-server
+
+            for attempt in $(seq 1 20); do
+              status=$(docker inspect --format='{{.State.Health.Status}}' forest-core-server)
+              test "$status" = healthy && exit 0
+              test "$status" = unhealthy && docker logs --tail 100 forest-core-server && exit 1
+              sleep 3
+            done
+
+            docker logs --tail 100 forest-core-server
+            exit 1
