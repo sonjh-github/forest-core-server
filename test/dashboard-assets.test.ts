@@ -15,7 +15,7 @@ test("dashboard disaster asset API는 재난에 매핑된 모든 장비를 반�
         return query;
       }
       const query = { select: (selection: string) => { assetSelection = selection; return query; }, eq: () => query, order: async () => ({ data: [
-        { event_resource_id: "30000000-0000-4000-8000-000000000001", event_id: "10000000-0000-4000-8000-000000000001", asset_id: "20000000-0000-4000-8000-000000000001", mission: "정찰", asset: { asset_id: "20000000-0000-4000-8000-000000000001", asset_code: "SIM-UAV-WF-01", product: { product_id: "50000000-0000-4000-8000-000000000001", product_name: "Matrice-350", model_name: "Matrice-350", specifications: {}, asset_type: { asset_type_id: "40000000-0000-4000-8000-000000000001", code: "UAV", name: "무인 항공기", description: null, enabled: true } } } },
+        { event_resource_id: "30000000-0000-4000-8000-000000000001", event_id: "10000000-0000-4000-8000-000000000001", asset_id: "20000000-0000-4000-8000-000000000001", mission: "정찰", asset: { asset_id: "20000000-0000-4000-8000-000000000001", asset_code: "SIM-UAV-WF-01", product_name: "Matrice-350", model_name: "Matrice-350", specifications: {}, asset_type: { asset_type_id: "40000000-0000-4000-8000-000000000001", code: "UAV", name: "무인 항공기", description: null, enabled: true } } },
         { event_resource_id: "30000000-0000-4000-8000-000000000002", event_id: "10000000-0000-4000-8000-000000000001", asset_id: "20000000-0000-4000-8000-000000000002", mission: "통신망 구축", asset: { asset_id: "20000000-0000-4000-8000-000000000002", asset_code: "SIM-TVWS-BS-01" } },
       ], error: null }) };
       return query;
@@ -30,8 +30,9 @@ test("dashboard disaster asset API는 재난에 매핑된 모든 장비를 반�
     assert.equal(body.data.disaster.disasterId, "10000000-0000-4000-8000-000000000001");
     assert.equal(body.data.assetCount, 2);
     assert.equal(body.data.assets.length, 2);
-    assert.match(assetSelection, /product:product/);
+    assert.match(assetSelection, /product_name,model_name,specifications/);
     assert.match(assetSelection, /asset_type:asset_type/);
+    assert.doesNotMatch(assetSelection, /product:product/);
     assert.doesNotMatch(assetSelection, /owner_org_code/);
   } finally {
     Object.assign(supabase, { schema: originalSchema });
