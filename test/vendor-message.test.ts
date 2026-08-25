@@ -29,16 +29,19 @@ test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
   const { collectDeviceIds } = await import("../src/types.js");
 
   let existing: { request_id: string; vendor_code: string } | null = null;
-  const inserted: Array<Record<string, unknown>> = [];
+  const persistedCalls: Array<Record<string, unknown>> = [];
   const originalSchema = supabase.schema.bind(supabase);
   Object.assign(supabase, {
     schema: () => ({
+      rpc: async (_name: string, params: Record<string, unknown>) => {
+        persistedCalls.push(params);
+        return { data: { assetLogInserted: true, snapshotUpdated: true }, error: null };
+      },
       from: () => {
         const query = {
           select: () => query,
           eq: () => query,
           maybeSingle: async () => ({ data: existing, error: null }),
-          insert: async (row: Record<string, unknown>) => { inserted.push(row); return { error: null }; },
         };
         return query;
       },
@@ -54,7 +57,7 @@ test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
     const validated = await invokeVendor("NDPS", ndpsRequest, ndpsMappings, "VALIDATE_ONLY", undefined, "TVWS");
     assert.equal(validated.accepted, true);
     assert.equal(validated.persisted, false);
-    assert.equal(inserted.length, 0);
+    assert.equal(persistedCalls.length, 0);
     assert.equal(validated.normalizedPath[0]?.fromAssetId, ndpsMappings[0]?.assetId);
     assert.equal(validated.normalizedPath[0]?.toAssetId, ndpsMappings[2]?.assetId);
 
@@ -62,16 +65,19 @@ test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
     const unmapped = await invokeVendor("NDPS", ndpsRequest, [...ndpsMappings.slice(0, 2), { vendorDeviceId: "BASE-1", assetId: null, mapped: false, assetExists: false, mappingStatus: "UNMAPPED" }], "DELIVER");
     assert.equal(unmapped.accepted, false);
     assert.deepEqual(unmapped.mapping.unmappedDeviceIds, ["BASE-1"]);
-    assert.equal(inserted.length, 0);
+    assert.equal(persistedCalls.length, 0);
 
     // DELIVER는 UUID로 정규화된 payload만 저장한다.
     const requestId = "11111111-1111-4111-8111-111111111111";
     const delivered = await invokeVendor("NDPS", ndpsRequest, ndpsMappings, "DELIVER", requestId, "TVWS");
     assert.equal(delivered.persisted, true);
-    assert.equal(inserted.length, 1);
-    const storedPayload = inserted[0]?.payload as typeof ndpsRequest;
+    assert.equal(persistedCalls.length, 1);
+    const storedMessage = persistedCalls[0]?.p_message as Record<string, unknown>;
+    const storedPayload = storedMessage.payload as typeof ndpsRequest;
     assert.equal(storedPayload.context.sourceDeviceId, ndpsMappings[0]?.assetId);
     assert.equal(storedPayload.data.baseDeviceId, ndpsMappings[2]?.assetId);
+    assert.equal(persistedCalls[0]?.p_asset_id, ndpsMappings[0]?.assetId);
+    assert.equal(persistedCalls[0]?.p_operational_status, "ONLINE");
 
     // vendor가 캐시 HIT로 이미 정규화한 요청은 재매핑하지 않고 그대로 저장한다.
     const normalizedRequest = structuredClone(storedPayload);
@@ -82,7 +88,7 @@ test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
     existing = { request_id: requestId, vendor_code: "NDPS" };
     const duplicate = await invokeVendor("NDPS", ndpsRequest, ndpsMappings, "DELIVER", requestId, "TVWS");
     assert.equal(duplicate.duplicate, true);
-    assert.equal(inserted.length, 1);
+    assert.equal(persistedCalls.length, 1);
 
     // 다른 업체가 동일 멱등성 키를 사용하면 충돌한다.
     await assert.rejects(

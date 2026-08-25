@@ -5,8 +5,3 @@ export async function findVendorMessage(requestId: string) {
   if (error) throw error;
   return data as { request_id: string; vendor_code: string } | null;
 }
-
-export async function insertVendorMessage(row: Record<string, unknown>) {
-  const { error } = await supabase.schema("core").from("vendor_integration_message").insert(row);
-  if (error) throw error;
-}
