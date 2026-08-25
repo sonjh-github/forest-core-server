@@ -1,15 +1,16 @@
 import { Hono } from "hono";
-import { parseBulkAssetIds, readAssetsBulk } from "./assets.js";
+import { parseDisasterId, readDisasterAssets } from "./assets.js";
 
 export const dashboardRoutes = new Hono();
 
-dashboardRoutes.post("/assets/bulk", async (c) => {
-  const body = await c.req.json<{ assetIds?: unknown }>();
+dashboardRoutes.get("/disasters/:disasterId/assets", async (c) => {
   try {
-    const assetIds = parseBulkAssetIds(body.assetIds);
-    return c.json({ data: await readAssetsBulk(assetIds) });
+    const disasterId = parseDisasterId(c.req.param("disasterId"));
+    const data = await readDisasterAssets(disasterId);
+    if (!data) return c.json({ error: { code: "DISASTER_NOT_FOUND", message: "재난 상황을 찾을 수 없습니다." } }, 404);
+    return c.json({ data });
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("assetIds는")) {
+    if (error instanceof Error && error.message.startsWith("disasterId는")) {
       return c.json({ error: { code: "INVALID_REQUEST", message: error.message } }, 400);
     }
     throw error;
