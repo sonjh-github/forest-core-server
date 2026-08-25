@@ -25,7 +25,7 @@ const ndpsMappings = [
 
 test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
   const { supabase } = await import("../src/db/client.js");
-  const { invokeVendor } = await import("../src/services/integration.js");
+  const { invokeVendor } = await import("../src/device/integration.js");
   const { collectDeviceIds } = await import("../src/types.js");
 
   let existing: { request_id: string; vendor_code: string } | null = null;
