@@ -48,20 +48,18 @@ test("dashboard disaster asset API는 잘못된 disasterId를 거부한다", asy
 test("dashboard 장비 등록 API는 DB가 발급한 UUID를 반환한다", async () => {
   const { supabase } = await import("../src/db/client.js");
   const originalSchema = supabase.schema.bind(supabase);
-  let inserted: Record<string, unknown> | null = null;
+  let rpcParams: Record<string, unknown> | null = null;
   Object.assign(supabase, {
-    schema: () => ({ from: (table: string) => {
-      if (table === "asset_type") {
+    schema: () => ({
+      from: () => {
         const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { asset_type_id: "40000000-0000-4000-8000-000000000001" }, error: null }) };
         return query;
-      }
-      const query = {
-        insert: (row: Record<string, unknown>) => { inserted = row; return query; },
-        select: () => query,
-        single: async () => ({ data: { asset_id: "20000000-0000-4000-8000-000000000099", ...inserted }, error: null }),
-      };
-      return query;
-    } }),
+      },
+      rpc: async (_name: string, params: Record<string, unknown>) => {
+        rpcParams = params;
+        return { data: { asset_id: "20000000-0000-4000-8000-000000000099", asset_code: params.p_asset_code, vendor_mapping: { vendor_code: params.p_vendor_code, vendor_device_id: params.p_vendor_device_id, status: params.p_mapping_status } }, error: null };
+      },
+    }),
   });
 
   try {
@@ -69,13 +67,15 @@ test("dashboard 장비 등록 API는 DB가 발급한 UUID를 반환한다", asyn
     const response = await app.request("/api/v1/dashboard/assets", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ assetCode: "DASH-UAV-01", assetTypeId: "40000000-0000-4000-8000-000000000001", assetName: "대시보드 등록 드론", modelName: "M350" }),
+      body: JSON.stringify({ assetCode: "DASH-UAV-01", assetTypeId: "40000000-0000-4000-8000-000000000001", assetName: "대시보드 등록 드론", modelName: "M350", vendor: "NDPS", vendorDeviceId: "NDPS-UAV-001", deviceType: "UAV" }),
     });
     const body = await response.json() as { data: { asset_id: string; asset_code: string } };
     assert.equal(response.status, 201);
     assert.equal(body.data.asset_id, "20000000-0000-4000-8000-000000000099");
     assert.equal(body.data.asset_code, "DASH-UAV-01");
-    assert.equal(inserted?.asset_type_id, "40000000-0000-4000-8000-000000000001");
+    assert.equal(rpcParams?.p_asset_type_id, "40000000-0000-4000-8000-000000000001");
+    assert.equal(rpcParams?.p_vendor_device_id, "NDPS-UAV-001");
+    assert.equal(body.data.vendor_mapping.vendor_device_id, "NDPS-UAV-001");
   } finally {
     Object.assign(supabase, { schema: originalSchema });
   }

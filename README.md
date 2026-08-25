@@ -9,6 +9,10 @@ Supabase DB에 접근하는 유일한 Hono 본 서버다. 외부 장비는 이 �
 - `POST /internal/v1/vendor-messages`: 검증 또는 메시지 저장
 - `GET /internal/v1/vendors/:vendor/health`: 업체별 수신 상태
 - `GET /api/v1/dashboard/disasters/:disasterId/assets`: 재난 상황에 매핑된 모든 장비 조회
+- `GET /api/v1/dashboard/asset-types`: 대시보드 장비 등록용 개념 장비 유형 조회
+- `POST /api/v1/dashboard/assets`: 물리 장비 등록 및 UUID 발급
+- `GET /api/v1/dashboard/assets/:assetId`: 등록된 물리 장비 조회
+- `PUT /api/v1/dashboard/assets/:assetId/vendor-mappings`: 업체 장비번호를 물리 장비 UUID에 연결
 
 ## 소스 구조
 
