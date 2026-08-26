@@ -1,9 +1,23 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { dashboardRoutes } from "./dashboard/routes.js";
 import { deviceRoutes } from "./device/routes.js";
 import { readCoreHealth } from "./device/health.js";
 
 export const app = new Hono();
+
+app.use(
+  "/api/v1/dashboard/*",
+  cors({
+    origin: [
+      "http://127.0.0.1:15173",
+      "http://localhost:15173",
+      "https://wildfire.forest.tobeunicorn.kr",
+    ],
+    allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
 app.get("/", (c) => c.json({ service: "forest-core-server", status: "ok" }));
 app.get("/health", async (c) => c.json({ data: await readCoreHealth() }));
