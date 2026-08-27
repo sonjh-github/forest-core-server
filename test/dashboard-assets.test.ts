@@ -91,6 +91,72 @@ test("dashboard 장비 등록 API는 필수값 누락을 거부한다", async ()
   assert.equal(response.status, 400);
 });
 
+test("dashboard 장비 로그 API는 assetId 관련 로그를 lazy pagination으로 반환한다", async () => {
+  const { supabase } = await import("../src/db/client.js");
+  const originalSchema = supabase.schema.bind(supabase);
+  let logFilter = "";
+  let logSelection = "";
+  let requestedLimit = 0;
+  Object.assign(supabase, {
+    schema: () => ({ from: (table: string) => {
+      if (table === "asset") {
+        const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { asset_id: "20000000-0000-4000-8000-000000000002" }, error: null }) };
+        return query;
+      }
+      const rows = [
+        {
+          request_id: "50000000-0000-4000-8000-000000000001",
+          received_at: "2026-08-27T03:00:03.000Z",
+          source_device_id: "20000000-0000-4000-8000-000000000002",
+          payload: {
+            context: { sourceDeviceId: "20000000-0000-4000-8000-000000000002" },
+            activePath: [{ fromDeviceId: "20000000-0000-4000-8000-000000000002", toDeviceId: "20000000-0000-4000-8000-000000000003", medium: "TVWS" }],
+            data: { operationalStatus: "ONLINE" },
+          },
+        },
+        { request_id: "50000000-0000-4000-8000-000000000002", received_at: "2026-08-27T03:00:02.000Z", source_device_id: "20000000-0000-4000-8000-000000000002" },
+        { request_id: "50000000-0000-4000-8000-000000000003", received_at: "2026-08-27T03:00:01.000Z", source_device_id: "20000000-0000-4000-8000-000000000002" },
+      ];
+      const query = {
+        select: (value: string) => { logSelection = value; return query; },
+        or: (value: string) => { logFilter = value; return query; },
+        order: () => query,
+        limit: (value: number) => { requestedLimit = value; return Promise.resolve({ data: rows, error: null }); },
+      };
+      return query;
+    } }),
+  });
+
+  try {
+    const { app } = await import("../src/app.js");
+    const response = await app.request("/api/v1/dashboard/assets/20000000-0000-4000-8000-000000000002/logs?limit=2");
+    const body = await response.json() as { data: { assetId: string; logs: Array<{ payload?: { activePath?: Array<{ medium: string }> } }>; page: { limit: number; hasMore: boolean; nextCursor: string } } };
+    assert.equal(response.status, 200);
+    assert.equal(body.data.assetId, "20000000-0000-4000-8000-000000000002");
+    assert.equal(body.data.logs.length, 2);
+    assert.equal(body.data.logs[0]?.payload?.activePath?.[0]?.medium, "TVWS");
+    assert.equal(body.data.page.limit, 2);
+    assert.equal(body.data.page.hasMore, true);
+    assert.equal(body.data.page.nextCursor, "2026-08-27T03:00:02.000Z");
+    assert.equal(requestedLimit, 3);
+    assert.match(logFilter, /source_device_id\.eq\.20000000-0000-4000-8000-000000000002/);
+    assert.match(logFilter, /baseDeviceId/);
+    assert.match(logFilter, /activePath/);
+    assert.match(logFilter, /payload\.cs/);
+    assert.doesNotMatch(logFilter, /normalized_payload/);
+    assert.doesNotMatch(logSelection, /normalized_payload/);
+  } finally {
+    Object.assign(supabase, { schema: originalSchema });
+  }
+});
+
+test("dashboard 장비 로그 API는 잘못된 limit과 cursor를 거부한다", async () => {
+  const { app } = await import("../src/app.js");
+  const path = "/api/v1/dashboard/assets/20000000-0000-4000-8000-000000000002/logs";
+  assert.equal((await app.request(`${path}?limit=101`)).status, 400);
+  assert.equal((await app.request(`${path}?cursor=not-a-date`)).status, 400);
+});
+
 test("dashboard 업체 장비 매핑 API는 asset UUID에 업체 번호를 연결한다", async () => {
   const { supabase } = await import("../src/db/client.js");
   const originalSchema = supabase.schema.bind(supabase);

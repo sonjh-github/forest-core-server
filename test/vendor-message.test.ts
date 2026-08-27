@@ -69,8 +69,13 @@ test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
     const delivered = await invokeVendor("NDPS", ndpsRequest, ndpsMappings, "DELIVER", requestId, "TVWS");
     assert.equal(delivered.persisted, true);
     assert.equal(inserted.length, 1);
+    assert.equal("normalized_payload" in (inserted[0] ?? {}), false);
     const storedPayload = inserted[0]?.payload as typeof ndpsRequest;
     assert.equal(storedPayload.context.sourceDeviceId, ndpsMappings[0]?.assetId);
+    assert.equal(storedPayload.context.reportedByDeviceId, ndpsMappings[1]?.assetId);
+    assert.equal(storedPayload.activePath[0]?.fromDeviceId, ndpsMappings[0]?.assetId);
+    assert.equal(storedPayload.activePath[0]?.toDeviceId, ndpsMappings[2]?.assetId);
+    assert.equal(storedPayload.activePath[0]?.medium, "TVWS");
     assert.equal(storedPayload.data.baseDeviceId, ndpsMappings[2]?.assetId);
 
     // vendor가 캐시 HIT로 이미 정규화한 요청은 재매핑하지 않고 그대로 저장한다.

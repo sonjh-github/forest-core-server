@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { readAssetLogs } from "./asset-logs.js";
 import { parseDisasterId, readDisasterAssets } from "./assets.js";
 import { parseAssetId, readAsset, readAssetTypes, registerAsset, registerVendorMapping, RegistryError } from "./registry.js";
 
@@ -26,6 +27,15 @@ dashboardRoutes.get("/assets/:assetId", async (c) => {
     const asset = await readAsset(parseAssetId(c.req.param("assetId")));
     if (!asset) return c.json({ error: { code: "ASSET_NOT_FOUND", message: "물리 장비를 찾을 수 없습니다." } }, 404);
     return c.json({ data: asset });
+  } catch (error) {
+    return registryErrorResponse(c, error);
+  }
+});
+
+dashboardRoutes.get("/assets/:assetId/logs", async (c) => {
+  try {
+    const data = await readAssetLogs(c.req.param("assetId"), c.req.query("limit"), c.req.query("cursor"));
+    return c.json({ data });
   } catch (error) {
     return registryErrorResponse(c, error);
   }
