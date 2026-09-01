@@ -6,7 +6,8 @@ process.env.SUPABASE_SECRET_KEY = "test-secret";
 
 const ndpsRequest = {
   context: { eventExternalId: "E-NDPS", sourceSystem: "ndps", occurredAt: "2026-08-21T00:00:00.000Z", sourceDeviceId: "CPE-1", reportedByDeviceId: "NMS-1" },
-  activePath: [{ sequence: 1, fromDeviceId: "CPE-1", toDeviceId: "BASE-1", medium: "TVWS", evidenceType: "OBSERVED" }],
+  relatedDeviceIds: ["CONTROLLER-1"],
+  activePath: [{ sequence: 1, fromDeviceId: "CPE-1", toDeviceId: "BASE-1", medium: "TVWS", evidenceType: "OBSERVED", observations: [{ receivedAt: "2026-08-21T00:00:00.000Z", rssiDbm: -71 }] }],
   data: { baseDeviceId: "BASE-1", cpeDeviceId: "CPE-1", observedAt: "2026-08-21T00:00:00.000Z", operationalStatus: "ONLINE" },
 };
 
@@ -21,6 +22,7 @@ const ndpsMappings = [
   { vendorDeviceId: "CPE-1", assetId: "10000000-0000-4000-8000-000000000001", mapped: true, assetExists: true, mappingStatus: "ACTIVE" as const },
   { vendorDeviceId: "NMS-1", assetId: "10000000-0000-4000-8000-000000000002", mapped: true, assetExists: true, mappingStatus: "ACTIVE" as const },
   { vendorDeviceId: "BASE-1", assetId: "10000000-0000-4000-8000-000000000003", mapped: true, assetExists: true, mappingStatus: "ACTIVE" as const },
+  { vendorDeviceId: "CONTROLLER-1", assetId: "10000000-0000-4000-8000-000000000004", mapped: true, assetExists: true, mappingStatus: "ACTIVE" as const },
 ];
 
 test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
@@ -47,7 +49,7 @@ test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
 
   try {
     // NDPS와 진인프라 payload의 모든 장비 식별자를 수집한다.
-    assert.deepEqual([...collectDeviceIds(ndpsRequest)].sort(), ["BASE-1", "CPE-1", "NMS-1"]);
+    assert.deepEqual([...collectDeviceIds(ndpsRequest)].sort(), ["BASE-1", "CONTROLLER-1", "CPE-1", "NMS-1"]);
     assert.deepEqual([...collectDeviceIds(jininfraRequest)].sort(), ["GW-1", "TERM-1", "TERM-2"]);
 
     // VALIDATE_ONLY는 UUID를 정규화하지만 DB에 저장하지 않는다.
@@ -73,9 +75,11 @@ test("vendor 시나리오에서 추론한 core 메시지 처리", async () => {
     const storedPayload = inserted[0]?.payload as typeof ndpsRequest;
     assert.equal(storedPayload.context.sourceDeviceId, ndpsMappings[0]?.assetId);
     assert.equal(storedPayload.context.reportedByDeviceId, ndpsMappings[1]?.assetId);
+    assert.equal(storedPayload.relatedDeviceIds[0], ndpsMappings[3]?.assetId);
     assert.equal(storedPayload.activePath[0]?.fromDeviceId, ndpsMappings[0]?.assetId);
     assert.equal(storedPayload.activePath[0]?.toDeviceId, ndpsMappings[2]?.assetId);
     assert.equal(storedPayload.activePath[0]?.medium, "TVWS");
+    assert.equal(storedPayload.activePath[0]?.observations[0]?.rssiDbm, -71);
     assert.equal(storedPayload.data.baseDeviceId, ndpsMappings[2]?.assetId);
 
     // vendor가 캐시 HIT로 이미 정규화한 요청은 재매핑하지 않고 그대로 저장한다.

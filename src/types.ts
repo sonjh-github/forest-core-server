@@ -10,14 +10,15 @@ export type MappingResult = {
 
 export type InvokeRequest = {
   payloadType?: string;
-  context: { eventExternalId: string; sourceSystem: string; occurredAt: string; sourceDeviceId: string; reportedByDeviceId: string; [key: string]: unknown };
-  activePath: Array<{ sequence: number; fromDeviceId: string; toDeviceId: string; medium: string; evidenceType: string; [key: string]: unknown }>;
+  context: { eventExternalId: string; sourceSystem: string; occurredAt: string; sourceDeviceId: string; reportedByDeviceId?: string; [key: string]: unknown };
+  relatedDeviceIds?: string[];
+  activePath: Array<{ sequence: number; fromDeviceId: string; toDeviceId: string; medium: string; evidenceType: string; observations: Array<Record<string, unknown>>; [key: string]: unknown }>;
   data: Record<string, unknown>;
   [key: string]: unknown;
 };
 
 const deviceIdKeys = new Set(["vendorDeviceId", "reportedByDeviceId", "sourceDeviceId", "fromDeviceId", "toDeviceId", "gatewayDeviceId", "baseDeviceId", "cpeDeviceId", "terminalDeviceId", "baseStationDeviceId"]);
-const deviceIdArrayKeys = new Set(["receivedTerminalDeviceIds"]);
+const deviceIdArrayKeys = new Set(["relatedDeviceIds", "receivedTerminalDeviceIds"]);
 
 export function collectDeviceIds(value: unknown, output = new Set<string>()): Set<string> {
   if (Array.isArray(value)) for (const item of value) collectDeviceIds(item, output);

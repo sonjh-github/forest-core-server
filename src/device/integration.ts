@@ -6,7 +6,7 @@ import type { ExternalVendor, InvokeRequest, MappingResult } from "../types.js";
 function normalizeIds(value: unknown, ids: Map<string, string>, key?: string): unknown {
   const scalarKeys = new Set(["reportedByDeviceId", "sourceDeviceId", "fromDeviceId", "toDeviceId", "gatewayDeviceId", "baseDeviceId", "cpeDeviceId", "terminalDeviceId", "baseStationDeviceId"]);
   if (typeof value === "string" && key && scalarKeys.has(key)) return ids.get(value) ?? value;
-  if (Array.isArray(value)) return value.map((item) => key === "receivedTerminalDeviceIds" && typeof item === "string" ? ids.get(item) ?? item : normalizeIds(item, ids));
+  if (Array.isArray(value)) return value.map((item) => (key === "relatedDeviceIds" || key === "receivedTerminalDeviceIds") && typeof item === "string" ? ids.get(item) ?? item : normalizeIds(item, ids));
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([childKey, item]) => [childKey, normalizeIds(item, ids, childKey)]));
   return value;
 }
@@ -24,7 +24,7 @@ export async function invokeVendor(vendor: ExternalVendor, request: InvokeReques
       if (existing.vendor_code !== vendor) throw Object.assign(new Error("동일 Idempotency-Key가 다른 업체 요청에 사용되었습니다."), { code: "23505" });
       return { requestId, accepted: true, duplicate: true, mode: deliveryMode, mapping: { allMapped: true, mappedDevices: mappings, unmappedDeviceIds: [] }, normalizedPath, persisted: true, recordId: requestId, processedAt: new Date().toISOString() };
     }
-    await insertVendorMessage({ request_id: requestId, vendor_code: vendor, event_external_id: normalized.context.eventExternalId, payload_type: normalized.payloadType ?? defaultPayloadType, delivery_mode: deliveryMode, source_device_id: normalized.context.sourceDeviceId, reported_by_device_id: normalized.context.reportedByDeviceId, occurred_at: normalized.context.occurredAt, status: "PERSISTED", payload: normalized });
+    await insertVendorMessage({ request_id: requestId, vendor_code: vendor, event_external_id: normalized.context.eventExternalId, payload_type: normalized.payloadType ?? defaultPayloadType, delivery_mode: deliveryMode, source_device_id: normalized.context.sourceDeviceId, reported_by_device_id: normalized.context.reportedByDeviceId ?? normalized.context.sourceDeviceId, occurred_at: normalized.context.occurredAt, status: "PERSISTED", payload: normalized });
   }
   return { requestId, accepted: true, duplicate: false, mode: deliveryMode, mapping: { allMapped: true, mappedDevices: mappings, unmappedDeviceIds: [] }, normalizedPath, persisted: deliveryMode === "DELIVER", recordId: deliveryMode === "DELIVER" ? requestId : null, processedAt: new Date().toISOString() };
 }
