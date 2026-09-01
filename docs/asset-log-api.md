@@ -121,7 +121,7 @@ GET https://api.forest.tobeunicorn.kr/api/v1/dashboard/assets/20000000-0000-4000
 |---|---|
 | `payload.context` | 이벤트 ID, 발생 시각, 송신 장비와 보고 장비 UUID |
 | `payload.activePath` | 장비 간 라우팅 경로, 순서, 통신 방식과 관측 근거 |
-| `payload.observations` | 업체 요청에 포함된 개별 수신 관측값. 요청에 없으면 생략 가능 |
+| `payload.activePath[].observations` | 해당 경로 구간에서 측정된 수신 시각·채널·RSSI·SNR 등의 관측값 |
 | `payload.data` | NDPS 또는 진인프라 장비별 상태·위치·품질 데이터 |
 
 `activePath.fromDeviceId`, `activePath.toDeviceId`는 업체 장비번호가 아니라 Core asset UUID다. 필드명은 업체 요청 계약을 유지하기 위해 `DeviceId`를 사용한다. invoke 처리 응답의 `normalizedPath`에서는 같은 값을 `fromAssetId`, `toAssetId`라는 이름으로 보여준다.
