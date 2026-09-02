@@ -61,6 +61,36 @@ Content-Type: application/json
 
 `assetCode`는 운영 화면에서 사용하는 고유 관리 코드이며 UNIQUE 제약조건이 적용된다. 동일한 값은 `409 ASSET_CODE_CONFLICT`로 거부된다. 신규 화면은 연결 키로 사용하지 않지만, 현재 Core에는 기존 업체 호환을 위한 보조 매핑 조회가 남아 있다.
 
+## 2-1. 등록 장비 목록 조회
+
+```http
+GET /api/v1/dashboard/assets?limit=100
+```
+
+`limit`은 선택값이며 기본값은 `100`, 허용 범위는 `1~200`이다. 최신 등록 순으로 자산을 반환하며 각 항목의 `vendor_mappings`에 업체 장비번호 연결을 포함한다.
+
+```json
+{
+  "data": [
+    {
+      "asset_id": "20000000-0000-4000-8000-000000000099",
+      "asset_code": "JIN-RTK-GATEWAY-001",
+      "asset_name": "RTK 게이트웨이 1호",
+      "status": "READY",
+      "asset_type": { "asset_type_id": "...", "name": "LTE_GATEWAY" },
+      "vendor_mappings": [
+        {
+          "vendor_code": "JININFRA",
+          "vendor_device_id": "TEST0000000001",
+          "device_type": "RTK_LPWA_GATEWAY",
+          "status": "ACTIVE"
+        }
+      ]
+    }
+  ]
+}
+```
+
 대시보드 등록 화면의 기본 연결 관계는 다음과 같다.
 
 ```text

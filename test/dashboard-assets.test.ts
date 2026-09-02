@@ -91,6 +91,40 @@ test("dashboard 장비 등록 API는 필수값 누락을 거부한다", async ()
   assert.equal(response.status, 400);
 });
 
+test("dashboard 장비 목록 API는 최신 장비와 업체 매핑을 반환한다", async () => {
+  const { supabase } = await import("../src/db/client.js");
+  const originalSchema = supabase.schema.bind(supabase);
+  Object.assign(supabase, {
+    schema: () => ({ from: (table: string) => {
+      if (table === "asset") {
+        const query = {
+          select: () => query,
+          order: () => query,
+          limit: async () => ({ data: [{ asset_id: "20000000-0000-4000-8000-000000000099", asset_code: "JIN-RTK-GATEWAY-001", asset_type: { name: "LTE_GATEWAY" } }], error: null }),
+        };
+        return query;
+      }
+      const query = {
+        select: () => query,
+        in: async () => ({ data: [{ asset_id: "20000000-0000-4000-8000-000000000099", vendor_code: "JININFRA", vendor_device_id: "TEST0000000001", device_type: "RTK_LPWA_GATEWAY", status: "ACTIVE" }], error: null }),
+      };
+      return query;
+    } }),
+  });
+
+  try {
+    const { app } = await import("../src/app.js");
+    const response = await app.request("/api/v1/dashboard/assets?limit=20");
+    const body = await response.json() as { data: Array<{ asset_id: string; vendor_mappings: Array<{ vendor_device_id: string }> }> };
+    assert.equal(response.status, 200);
+    assert.equal(body.data[0]?.asset_id, "20000000-0000-4000-8000-000000000099");
+    assert.equal(body.data[0]?.vendor_mappings[0]?.vendor_device_id, "TEST0000000001");
+    assert.equal((await app.request("/api/v1/dashboard/assets?limit=201")).status, 400);
+  } finally {
+    Object.assign(supabase, { schema: originalSchema });
+  }
+});
+
 test("dashboard 장비 로그 API는 assetId 관련 로그를 lazy pagination으로 반환한다", async () => {
   const { supabase } = await import("../src/db/client.js");
   const originalSchema = supabase.schema.bind(supabase);

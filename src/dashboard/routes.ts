@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { readAssetLogs } from "./asset-logs.js";
 import { parseDisasterId, readDisasterAssets } from "./assets.js";
-import { parseAssetId, readAsset, readAssetTypes, registerAsset, registerVendorMapping, RegistryError } from "./registry.js";
+import { parseAssetId, readAsset, readAssets, readAssetTypes, registerAsset, registerVendorMapping, RegistryError } from "./registry.js";
 
 export const dashboardRoutes = new Hono();
 
@@ -11,6 +11,14 @@ function registryErrorResponse(c: Context, error: unknown) {
 }
 
 dashboardRoutes.get("/asset-types", async (c) => c.json({ data: await readAssetTypes() }));
+
+dashboardRoutes.get("/assets", async (c) => {
+  try {
+    return c.json({ data: await readAssets(c.req.query("limit")) });
+  } catch (error) {
+    return registryErrorResponse(c, error);
+  }
+});
 
 dashboardRoutes.post("/assets", async (c) => {
   try {

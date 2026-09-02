@@ -65,6 +65,35 @@ export async function findRegisteredAsset(assetId: string) {
   return data;
 }
 
+export async function listRegisteredAssets(limit: number) {
+  const { data: assets, error: assetError } = await supabase.schema("core").from("asset")
+    .select(ASSET_SELECT)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (assetError) throw assetError;
+
+  const rows = assets ?? [];
+  const assetIds = rows.map((asset) => asset.asset_id);
+  if (!assetIds.length) return [];
+
+  const { data: mappings, error: mappingError } = await supabase.schema("core").from("vendor_device_mapping")
+    .select("vendor_code,vendor_device_id,asset_id,device_type,status,first_seen_at,last_seen_at")
+    .in("asset_id", assetIds);
+  if (mappingError) throw mappingError;
+
+  const mappingsByAsset = new Map<string, typeof mappings>();
+  for (const mapping of mappings ?? []) {
+    const current = mappingsByAsset.get(mapping.asset_id) ?? [];
+    current.push(mapping);
+    mappingsByAsset.set(mapping.asset_id, current);
+  }
+
+  return rows.map((asset) => ({
+    ...asset,
+    vendor_mappings: mappingsByAsset.get(asset.asset_id) ?? [],
+  }));
+}
+
 export async function upsertVendorDeviceMapping(row: {
   vendor_code: string;
   vendor_device_id: string;

@@ -1,4 +1,4 @@
-import { findAssetTypeId, findRegisteredAsset, insertAssetWithVendorMapping, listEnabledAssetTypes, upsertVendorDeviceMapping } from "../db/asset-registry.js";
+import { findAssetTypeId, findRegisteredAsset, insertAssetWithVendorMapping, listEnabledAssetTypes, listRegisteredAssets, upsertVendorDeviceMapping } from "../db/asset-registry.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VENDORS = new Set(["NDPS", "JININFRA"]);
@@ -73,6 +73,14 @@ export async function registerAsset(body: Record<string, unknown>) {
 
 export async function readAsset(assetId: string) {
   return findRegisteredAsset(parseAssetId(assetId));
+}
+
+export async function readAssets(limitValue?: string) {
+  const parsed = limitValue === undefined ? 100 : Number(limitValue);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 200) {
+    throw new RegistryError("INVALID_REQUEST", "limit은 1~200 사이의 정수여야 합니다.");
+  }
+  return listRegisteredAssets(parsed);
 }
 
 export async function registerVendorMapping(assetIdValue: string, body: Record<string, unknown>) {
