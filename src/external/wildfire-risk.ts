@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "./fetch-with-timeout.js";
+
 export interface WildfireRiskRecord {
   analyzedAt: string;
   area: string;
@@ -56,7 +58,7 @@ export async function fetchWildfireRisk(params: {
     `${params.baseUrl.replace(/\/+$/, "")}` +
     `/forestPointListSigunguSearchV2?${query.toString()}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       Accept: "application/xml,text/xml",
       "User-Agent": "forest-back-demo/1.0",

@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "./fetch-with-timeout.js";
+
 export interface LandslideRegionalRiskRecord {
   managementNumber: string;
   districtName: string;
@@ -90,7 +92,7 @@ export async function fetchLandslideRegionalRisk(params: {
 
   const url = `${baseUrl}${endpoint}?${query.toString()}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "forest-back-demo/1.0",
