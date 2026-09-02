@@ -8,6 +8,132 @@ import { fetchLandslideRegionalRisk } from "./landslide-regional-risk.js";
 
 export const externalRoutes = new Hono();
 
+type ExternalIntegrationStatus = {
+  id: string;
+  name: string;
+  status: "ok" | "failed";
+  checkedAt: string;
+  message?: string;
+};
+
+async function checkIntegration(
+  id: string,
+  name: string,
+  request: () => Promise<unknown>,
+): Promise<ExternalIntegrationStatus> {
+  const checkedAt = new Date().toISOString();
+
+  try {
+    await request();
+
+    return {
+      id,
+      name,
+      status: "ok",
+      checkedAt,
+    };
+  } catch (error) {
+    return {
+      id,
+      name,
+      status: "failed",
+      checkedAt,
+      message: error instanceof Error ? error.message : "Unknown integration error",
+    };
+  }
+}
+
+externalRoutes.get("/status", async (c) => {
+  const integrations = await Promise.all([
+    checkIntegration("nasa-firms", "NASA FIRMS", () =>
+      fetchFirmsArea({
+        mapKey: process.env.NASA_FIRMS_MAP_KEY?.trim() ?? "",
+        baseUrl:
+          process.env.NASA_FIRMS_BASE_URL?.trim() ??
+          "https://firms.modaps.eosdis.nasa.gov",
+        bbox:
+          process.env.NASA_FIRMS_DEFAULT_BBOX?.trim() ??
+          "124.0,33.0,132.0,39.5",
+        days: 1,
+        source:
+          process.env.NASA_FIRMS_SOURCE?.trim() ??
+          "VIIRS_SNPP_NRT",
+      }),
+    ),
+
+    checkIntegration("kfs-wildfire-risk", "산림청 산불위험예보", () =>
+      fetchWildfireRisk({
+        serviceKey: process.env.KFS_WILDFIRE_SERVICE_KEY?.trim() ?? "",
+        baseUrl:
+          process.env.KFS_WILDFIRE_BASE_URL?.trim() ??
+          "http://apis.data.go.kr/1400377/forestPointV2",
+        pageNo: 1,
+        numOfRows: 1,
+      }),
+    ),
+
+    checkIntegration("landslide-forecast", "산사태 예측정보", () =>
+      fetchLandslideForecast({
+        serviceKey:
+          process.env.LANDSLIDE_FORECAST_SERVICE_KEY?.trim() ?? "",
+        baseUrl:
+          process.env.SAFETY_DATA_BASE_URL?.trim() ??
+          "https://www.safetydata.go.kr",
+        endpoint:
+          process.env.LANDSLIDE_FORECAST_ENDPOINT?.trim() ??
+          "/V2/api/DSSP-IF-00735",
+        pageNo: 1,
+        numOfRows: 1,
+      }),
+    ),
+
+    checkIntegration("landslide-history", "산사태 발생이력", () =>
+      fetchLandslideHistory({
+        serviceKey:
+          process.env.LANDSLIDE_HISTORY_SERVICE_KEY?.trim() ?? "",
+        baseUrl:
+          process.env.SAFETY_DATA_BASE_URL?.trim() ??
+          "https://www.safetydata.go.kr",
+        endpoint:
+          process.env.LANDSLIDE_HISTORY_ENDPOINT?.trim() ??
+          "/V2/api/DSSP-IF-00134",
+        pageNo: 1,
+        numOfRows: 1,
+      }),
+    ),
+
+    checkIntegration("landslide-regional-risk", "산사태 지역위험정보", () =>
+      fetchLandslideRegionalRisk({
+        serviceKey:
+          process.env.LANDSLIDE_REGIONAL_HISTORY_SERVICE_KEY?.trim() ?? "",
+        baseUrl:
+          process.env.SAFETY_DATA_BASE_URL?.trim() ??
+          "https://www.safetydata.go.kr",
+        endpoint:
+          process.env.LANDSLIDE_REGIONAL_RISK_ENDPOINT?.trim() ??
+          "/V2/api/DSSP-IF-10076",
+        pageNo: 1,
+        numOfRows: 1,
+      }),
+    ),
+  ]);
+
+  const healthy = integrations.filter(
+    (integration) => integration.status === "ok",
+  ).length;
+
+  return c.json({
+    data: integrations,
+    meta: {
+      checkedAt: new Date().toISOString(),
+      total: integrations.length,
+      healthy,
+      failed: integrations.length - healthy,
+    },
+  });
+});
+
+
 externalRoutes.get("/wildfire/firms", async (c) => {
   const bbox =
     c.req.query("bbox") ??
