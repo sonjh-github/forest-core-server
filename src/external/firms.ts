@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "./fetch-with-timeout.js";
+
 export interface FirmsHotspot {
   latitude: number;
   longitude: number;
@@ -70,7 +72,7 @@ export async function fetchFirmsArea(params: {
     `/${params.bbox}` +
     `/${params.days}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       Accept: "text/csv",
       "User-Agent": "forest-back-demo/1.0",

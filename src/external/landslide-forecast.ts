@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "./fetch-with-timeout.js";
+
 export interface LandslideForecastRecord {
   predictedAt: string;
   district: string;
@@ -50,7 +52,7 @@ export async function fetchLandslideForecast(params: {
 
   const url = `${baseUrl}${endpoint}?${query.toString()}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "forest-back-demo/1.0",
