@@ -6,6 +6,7 @@ type CacheEntry<T> = {
 };
 
 const cache = new Map<string, CacheEntry<unknown>>();
+const inflight = new Map<string, Promise<unknown>>();
 
 export async function cachedExternalRequest<T>(
   key: string,
@@ -14,22 +15,46 @@ export async function cachedExternalRequest<T>(
 ): Promise<T> {
   const now = Date.now();
 
-  const existing = cache.get(key) as CacheEntry<T> | undefined;
+  const existing = cache.get(key) as
+    | CacheEntry<T>
+    | undefined;
 
-  if (existing && existing.expiresAt > now) {
+  if (
+    existing &&
+    existing.expiresAt > now
+  ) {
     return existing.value;
   }
 
-  const value = await loader();
+  const existingInflight = inflight.get(
+    key,
+  ) as Promise<T> | undefined;
 
-  cache.set(key, {
-    value,
-    expiresAt: Date.now() + ttlMs,
-  });
+  if (existingInflight) {
+    return existingInflight;
+  }
 
-  return value;
+  const request = (async () => {
+    try {
+      const value = await loader();
+
+      cache.set(key, {
+        value,
+        expiresAt: Date.now() + ttlMs,
+      });
+
+      return value;
+    } finally {
+      inflight.delete(key);
+    }
+  })();
+
+  inflight.set(key, request);
+
+  return request;
 }
 
 export function clearExternalResponseCache(): void {
   cache.clear();
+  inflight.clear();
 }

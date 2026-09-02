@@ -136,3 +136,93 @@ test("TTL이 지나면 외부기관 데이터를 다시 조회한다", async () 
     clearExternalResponseCache();
   }
 });
+
+test("동일 key의 동시 요청은 하나의 loader 호출로 병합한다", async () => {
+  clearExternalResponseCache();
+
+  let calls = 0;
+  let releaseLoader: (() => void) | undefined;
+
+  const gate = new Promise<void>((resolve) => {
+    releaseLoader = resolve;
+  });
+
+  const loader = async () => {
+    calls += 1;
+    await gate;
+
+    return {
+      provider: "test",
+      calls,
+    };
+  };
+
+  const first = cachedExternalRequest(
+    "provider:concurrent",
+    loader,
+    1_000,
+  );
+
+  const second = cachedExternalRequest(
+    "provider:concurrent",
+    loader,
+    1_000,
+  );
+
+  const third = cachedExternalRequest(
+    "provider:concurrent",
+    loader,
+    1_000,
+  );
+
+  assert.equal(calls, 1);
+
+  releaseLoader?.();
+
+  const results = await Promise.all([
+    first,
+    second,
+    third,
+  ]);
+
+  assert.equal(calls, 1);
+  assert.deepEqual(results[0], results[1]);
+  assert.deepEqual(results[1], results[2]);
+
+  clearExternalResponseCache();
+});
+
+test("실패한 동시 요청은 inflight에서 제거되어 재시도할 수 있다", async () => {
+  clearExternalResponseCache();
+
+  let calls = 0;
+
+  const loader = async () => {
+    calls += 1;
+
+    if (calls === 1) {
+      throw new Error("temporary failure");
+    }
+
+    return "recovered";
+  };
+
+  await assert.rejects(
+    () =>
+      cachedExternalRequest(
+        "provider:inflight-failure",
+        loader,
+      ),
+    /temporary failure/,
+  );
+
+  const recovered = await cachedExternalRequest(
+    "provider:inflight-failure",
+    loader,
+  );
+
+  assert.equal(recovered, "recovered");
+  assert.equal(calls, 2);
+
+  clearExternalResponseCache();
+});
