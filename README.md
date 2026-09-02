@@ -13,7 +13,7 @@ Supabase DB에 접근하는 유일한 Hono 본 서버다. 외부 장비는 이 �
 - `POST /api/v1/dashboard/assets`: 물리 장비 등록 및 UUID 발급
 - `GET /api/v1/dashboard/assets/:assetId`: 등록된 물리 장비 조회
 - `PUT /api/v1/dashboard/assets/:assetId/vendor-mappings`: 업체 장비번호를 물리 장비 UUID에 연결
-
+ 
 ## 소스 구조
 
 - `src/device`: 장비 연동 서버와 통신하는 내부 API 및 처리 로직
