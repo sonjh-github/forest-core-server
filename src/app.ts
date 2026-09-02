@@ -16,7 +16,7 @@ app.use(
       "https://wildfire.forest.tobeunicorn.kr",
     ],
     allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Origin"],
   }),
 );
 
