@@ -40,4 +40,17 @@ app.route("/api/v1/dashboard", dashboardRoutes);
 app.route("/api/v1/external", externalRoutes);
 
 app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "지원하지 않는 경로입니다." } }, 404));
-app.onError((error, c) => c.json({ error: { code: "PROCESSING_FAILURE", message: error.message } }, 502));
+app.onError((error, c) => {
+  if (
+    c.req.path.startsWith("/api/v1/external/") &&
+    c.req.header("Origin") === "https://wildfire.forest.tobeunicorn.kr"
+  ) {
+    c.header("Access-Control-Allow-Origin", "https://wildfire.forest.tobeunicorn.kr");
+    c.header("Vary", "Origin");
+  }
+
+  return c.json(
+    { error: { code: "PROCESSING_FAILURE", message: error.message } },
+    502,
+  );
+});
