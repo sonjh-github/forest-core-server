@@ -5,6 +5,7 @@ import { fetchWildfireRisk } from "./wildfire-risk.js";
 import { fetchLandslideForecast } from "./landslide-forecast.js";
 import { fetchLandslideHistory } from "./landslide-history.js";
 import { fetchLandslideRegionalRisk } from "./landslide-regional-risk.js";
+import { cachedExternal } from "./cache.js";
 
 export const externalRoutes = new Hono();
 
@@ -24,8 +25,7 @@ externalRoutes.get("/wildfire/firms", async (c) => {
     process.env.NASA_FIRMS_SOURCE?.trim() ??
     "VIIRS_SNPP_NRT";
 
-  return c.json(
-    await fetchFirmsArea({
+  const result = await cachedExternal(`firms:${bbox}:${days}:${source}`, () => fetchFirmsArea({
       mapKey: process.env.NASA_FIRMS_MAP_KEY?.trim() ?? "",
       baseUrl:
         process.env.NASA_FIRMS_BASE_URL?.trim() ??
@@ -33,8 +33,9 @@ externalRoutes.get("/wildfire/firms", async (c) => {
       bbox,
       days,
       source,
-    }),
-  );
+    }));
+  c.header("X-Forest-External-Cache", result.cache);
+  return c.json(result.value);
 });
 
 externalRoutes.get("/wildfire/risk", async (c) => {
@@ -44,16 +45,16 @@ externalRoutes.get("/wildfire/risk", async (c) => {
     10,
   );
 
-  return c.json(
-    await fetchWildfireRisk({
+  const result = await cachedExternal(`wildfire-risk:${pageNo}:${numOfRows}`, () => fetchWildfireRisk({
       serviceKey: process.env.KFS_WILDFIRE_SERVICE_KEY?.trim() ?? "",
       baseUrl:
         process.env.KFS_WILDFIRE_BASE_URL?.trim() ??
         "http://apis.data.go.kr/1400377/forestPointV2",
       pageNo: Number.isFinite(pageNo) ? pageNo : 1,
       numOfRows: Number.isFinite(numOfRows) ? numOfRows : 100,
-    }),
-  );
+    }));
+  c.header("X-Forest-External-Cache", result.cache);
+  return c.json(result.value);
 });
 
 externalRoutes.get("/landslide/forecast", async (c) => {
@@ -63,8 +64,7 @@ externalRoutes.get("/landslide/forecast", async (c) => {
     10,
   );
 
-  return c.json(
-    await fetchLandslideForecast({
+  const result = await cachedExternal(`landslide-forecast:${pageNo}:${numOfRows}:${c.req.query("inqDt") ?? ""}`, () => fetchLandslideForecast({
       serviceKey:
         process.env.LANDSLIDE_FORECAST_SERVICE_KEY?.trim() ?? "",
       baseUrl:
@@ -76,8 +76,9 @@ externalRoutes.get("/landslide/forecast", async (c) => {
       pageNo: Number.isFinite(pageNo) ? pageNo : 1,
       numOfRows: Number.isFinite(numOfRows) ? numOfRows : 100,
       inquiryDate: c.req.query("inqDt"),
-    }),
-  );
+    }));
+  c.header("X-Forest-External-Cache", result.cache);
+  return c.json(result.value);
 });
 
 externalRoutes.get("/landslide/history", async (c) => {
@@ -87,8 +88,7 @@ externalRoutes.get("/landslide/history", async (c) => {
     10,
   );
 
-  return c.json(
-    await fetchLandslideHistory({
+  const result = await cachedExternal(`landslide-history:${pageNo}:${numOfRows}`, () => fetchLandslideHistory({
       serviceKey:
         process.env.LANDSLIDE_HISTORY_SERVICE_KEY?.trim() ?? "",
       baseUrl:
@@ -99,8 +99,9 @@ externalRoutes.get("/landslide/history", async (c) => {
         "/V2/api/DSSP-IF-00134",
       pageNo: Number.isFinite(pageNo) ? pageNo : 1,
       numOfRows: Number.isFinite(numOfRows) ? numOfRows : 100,
-    }),
-  );
+    }));
+  c.header("X-Forest-External-Cache", result.cache);
+  return c.json(result.value);
 });
 
 externalRoutes.get("/landslide/regional-risk", async (c) => {
@@ -110,8 +111,7 @@ externalRoutes.get("/landslide/regional-risk", async (c) => {
     10,
   );
 
-  return c.json(
-    await fetchLandslideRegionalRisk({
+  const result = await cachedExternal(`landslide-regional:${pageNo}:${numOfRows}`, () => fetchLandslideRegionalRisk({
       serviceKey:
         process.env.LANDSLIDE_REGIONAL_HISTORY_SERVICE_KEY?.trim() ??
         "",
@@ -123,6 +123,7 @@ externalRoutes.get("/landslide/regional-risk", async (c) => {
         "/V2/api/DSSP-IF-10076",
       pageNo: Number.isFinite(pageNo) ? pageNo : 1,
       numOfRows: Number.isFinite(numOfRows) ? numOfRows : 100,
-    }),
-  );
+    }));
+  c.header("X-Forest-External-Cache", result.cache);
+  return c.json(result.value);
 });
