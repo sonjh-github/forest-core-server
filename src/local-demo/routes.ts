@@ -8,6 +8,10 @@ import {
 } from "hono";
 
 import {
+  config,
+} from "../config.js";
+
+import {
   calculateSlenoQuality,
 } from "../dashboard/sleno-quality.js";
 
@@ -349,6 +353,14 @@ localDashboardRoutes.get(
       });
     }
 
+    if (
+      !config.sqliteSeedDemo
+    ) {
+      return c.json({
+        data: [],
+      });
+    }
+
     const receivedAt =
       new Date()
         .toISOString();
@@ -491,7 +503,7 @@ export function localHealth() {
       "sqlite",
 
     demoMode:
-      true,
+      config.sqliteSeedDemo,
 
     cloudFallback:
       false,

@@ -3,8 +3,15 @@ import { parseDroneTelemetry } from "./schema.js";
 import { telemetryHub, type TelemetryHub } from "./hub.js";
 import {
   telemetryStore,
+  type StoredDroneTelemetry,
   type TelemetryStore
 } from "./store.js";
+
+import {
+  memoryTelemetryPersistence,
+  runtimeTelemetryPersistence,
+  type TelemetryPersistence
+} from "./persistence.js";
 import {
   requirementKpiEngine
 } from "../kpi/engine.js";
@@ -14,7 +21,10 @@ import {
 
 export function createTelemetryRoutes(
   store: TelemetryStore = telemetryStore,
-  hub: TelemetryHub = telemetryHub
+  hub: TelemetryHub = telemetryHub,
+  persistence:
+    TelemetryPersistence =
+      memoryTelemetryPersistence
 ) {
   const routes = new Hono();
 
@@ -33,16 +43,45 @@ export function createTelemetryRoutes(
     }
 
     try {
-      const telemetry = parseDroneTelemetry(body);
-      const previous = store.get(telemetry.droneId);
-      const stored = store.put(telemetry);
+      const telemetry =
+        parseDroneTelemetry(body);
+
+      let previous =
+        store.get(
+          telemetry.droneId,
+        );
+
+      if (!previous) {
+        previous =
+          await persistence
+            .readLatest(
+              telemetry.droneId,
+            );
+      }
 
       const acceptedAsLatest =
         previous == null ||
-        Date.parse(telemetry.timestamp) >=
-          Date.parse(previous.timestamp);
+        Date.parse(
+          telemetry.timestamp,
+        ) >=
+          Date.parse(
+            previous.timestamp,
+          );
+
+      const stored =
+        acceptedAsLatest
+          ? store.put(
+              telemetry,
+            )
+          : previous as
+              StoredDroneTelemetry;
 
       if (acceptedAsLatest) {
+        await persistence
+          .writeLatest(
+            stored,
+          );
+
         hub.publish(stored);
 
         requirementKpiEngine
@@ -113,7 +152,7 @@ export function createTelemetryRoutes(
     }
   });
 
-  routes.get("/drone/:droneId/latest", (c) => {
+  routes.get("/drone/:droneId/latest", async (c) => {
     const droneId = c.req.param("droneId").trim();
 
     if (!droneId) {
@@ -125,7 +164,16 @@ export function createTelemetryRoutes(
       }, 400);
     }
 
-    const telemetry = store.get(droneId);
+    let telemetry =
+      store.get(droneId);
+
+    if (!telemetry) {
+      telemetry =
+        await persistence
+          .readLatest(
+            droneId,
+          );
+    }
 
     if (!telemetry) {
       return c.json({
@@ -164,4 +212,9 @@ export function createTelemetryRoutes(
   return routes;
 }
 
-export const telemetryRoutes = createTelemetryRoutes();
+export const telemetryRoutes =
+  createTelemetryRoutes(
+    telemetryStore,
+    telemetryHub,
+    runtimeTelemetryPersistence
+  );

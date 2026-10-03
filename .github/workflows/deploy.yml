@@ -50,6 +50,12 @@ jobs:
               -f dockerfile \
               -t forest-core-server .
 
+            # SQLite 운영 모드 전환 시에도
+            # container 교체 후 DB 파일이 유지되도록
+            # host persistent directory를 사용한다.
+            mkdir -p \
+              /home/ubuntu/server/forest-core-server/data
+
             docker rm -f forest-core-server || true
 
             docker run -d \
@@ -59,6 +65,9 @@ jobs:
               --log-opt max-size=10m \
               --log-opt max-file=5 \
               --env-file /home/ubuntu/server/forest-core-server/.env \
+              -e SQLITE_PATH=/app/data/forest.sqlite \
+              -e SQLITE_SEED_DEMO=false \
+              -v /home/ubuntu/server/forest-core-server/data:/app/data \
               -p 127.0.0.1:18020:18020 \
               forest-core-server
 

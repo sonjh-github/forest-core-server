@@ -28,6 +28,10 @@ import type {
   MappingResult,
 } from "../types.js";
 
+import type {
+  StoredDroneTelemetry,
+} from "../telemetry/store.js";
+
 
 export const DEMO_UAV_ID =
   "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -219,6 +223,22 @@ function initSchema(
       idx_vendor_message_device_received
     ON vendor_message(
       source_device_id,
+      received_at DESC
+    );
+
+    CREATE TABLE IF NOT EXISTS drone_telemetry (
+      telemetry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drone_id TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS
+      idx_drone_telemetry_latest
+    ON drone_telemetry(
+      drone_id,
+      observed_at DESC,
       received_at DESC
     );
   `);
@@ -492,9 +512,115 @@ export function localDb():
     );
 
   initSchema(database);
-  seed(database);
+
+  if (
+    config.sqliteSeedDemo
+  ) {
+    seed(database);
+  }
 
   return database;
+}
+
+export function insertDroneTelemetry(
+  value: StoredDroneTelemetry,
+): StoredDroneTelemetry {
+  localDb()
+    .prepare(`
+      INSERT INTO drone_telemetry (
+        drone_id,
+        observed_at,
+        received_at,
+        payload_json
+      )
+      VALUES (?, ?, ?, ?)
+    `)
+    .run(
+      value.droneId,
+      value.timestamp,
+      value.receivedAt,
+      JSON.stringify(value),
+    );
+
+  return value;
+}
+
+export function readLatestDroneTelemetry(
+  droneId: string,
+): StoredDroneTelemetry | null {
+  const row =
+    localDb()
+      .prepare(`
+        SELECT
+          drone_id,
+          observed_at,
+          received_at,
+          payload_json
+        FROM drone_telemetry
+        WHERE drone_id = ?
+        ORDER BY
+          julianday(observed_at) DESC,
+          julianday(received_at) DESC,
+          telemetry_id DESC
+        LIMIT 1
+      `)
+      .get(droneId) as
+      | Row
+      | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  let payload:
+    Record<string, unknown> = {};
+
+  if (
+    typeof row.payload_json ===
+    "string"
+  ) {
+    try {
+      const parsed =
+        JSON.parse(
+          row.payload_json,
+        );
+
+      if (
+        parsed &&
+        typeof parsed ===
+          "object" &&
+        !Array.isArray(parsed)
+      ) {
+        payload =
+          parsed as
+            Record<
+              string,
+              unknown
+            >;
+      }
+    } catch {
+      payload = {};
+    }
+  }
+
+  return {
+    ...payload,
+
+    droneId:
+      String(
+        row.drone_id,
+      ),
+
+    timestamp:
+      String(
+        row.observed_at,
+      ),
+
+    receivedAt:
+      String(
+        row.received_at,
+      ),
+  } as StoredDroneTelemetry;
 }
 
 export function localDbHealth():
