@@ -119,7 +119,7 @@ app.onError((error, c) => {
     {
       error: {
         code: "PROCESSING_FAILURE",
-        message: error.message,
+        message: "요청 처리 중 오류가 발생했습니다.",
       },
     },
     502,
