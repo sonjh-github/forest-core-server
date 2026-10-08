@@ -30,6 +30,9 @@ export function readDashboardDroneTelemetry(
     observedAt: telemetry.timestamp,
     receivedAt: telemetry.receivedAt,
 
+    sequence:
+      telemetry.mavlinkSequence,
+
     latitude: telemetry.latitude,
     longitude: telemetry.longitude,
     altitude: telemetry.altitude,

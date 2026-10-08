@@ -5,7 +5,18 @@ import type { ExternalVendor } from "../types.js";
 export async function readCoreHealth() {
   const checkedAt = new Date().toISOString();
   await checkDatabaseConnection();
-  return { service: "forest-core-server", status: "UP", databaseStatus: "REACHABLE", diagnosticRunId: randomUUID(), checkedAt };
+  return {
+    service: "forest-core-server",
+    status: "UP",
+    databaseStatus: "REACHABLE",
+    database: "SUPABASE",
+    dbMode: "supabase",
+    demoMode: false,
+    cloudFallback: false,
+    cloudFailover: false,
+    diagnosticRunId: randomUUID(),
+    checkedAt,
+  };
 }
 
 export async function readVendorHealth(vendor: ExternalVendor) {

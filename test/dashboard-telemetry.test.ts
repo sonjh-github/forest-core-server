@@ -76,6 +76,11 @@ test(
     );
 
     assert.equal(
+      rows[0].sequence,
+      42
+    );
+
+    assert.equal(
       rows[0].positioningMethod,
       "RTK"
     );

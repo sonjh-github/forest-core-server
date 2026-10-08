@@ -38,6 +38,7 @@ export type SlenoDeviceQuality = {
   deviceType: string | null;
 
   isSimulatedDevice: boolean;
+  isRegisteredDevice: boolean;
 
   sampleCount: number;
   counterSampleCount: number;
@@ -92,6 +93,7 @@ export type SlenoNetworkQuality = {
   deviceCount: number;
   physicalDeviceCount: number;
   simulatedDeviceCount: number;
+  unregisteredDeviceCount: number;
 
   liveCount: number;
   staleCount: number;
@@ -587,6 +589,9 @@ function deviceQuality(
           .startsWith("SIM-")
       ),
 
+    isRegisteredDevice:
+      identity != null,
+
     sampleCount:
       ordered.length,
 
@@ -818,13 +823,21 @@ export function calculateSlenoQuality(
     physicalDeviceCount:
       devices.filter(
         (row) =>
+          row.isRegisteredDevice &&
           !row.isSimulatedDevice
       ).length,
 
     simulatedDeviceCount:
       devices.filter(
         (row) =>
+          row.isRegisteredDevice &&
           row.isSimulatedDevice
+      ).length,
+
+    unregisteredDeviceCount:
+      devices.filter(
+        (row) =>
+          !row.isRegisteredDevice
       ).length,
 
     liveCount:
