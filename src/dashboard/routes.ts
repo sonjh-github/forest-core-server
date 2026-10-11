@@ -8,6 +8,16 @@ import { parseAssetId, readAsset, readAssets, readAssetTypes, registerAsset, reg
 
 export const dashboardRoutes = new Hono();
 
+async function readRegistryBody(c: Context): Promise<Record<string, unknown>> {
+  let body: unknown;
+  try { body = await c.req.json(); }
+  catch { throw new RegistryError("INVALID_REQUEST", "올바른 JSON 객체를 보내 주세요."); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new RegistryError("INVALID_REQUEST", "요청 본문은 JSON 객체여야 합니다.");
+  }
+  return body as Record<string, unknown>;
+}
+
 function registryErrorResponse(c: Context, error: unknown) {
   if (error instanceof RegistryError) return c.json({ error: { code: error.code, message: error.message } }, error.status);
   throw error;
@@ -25,7 +35,7 @@ dashboardRoutes.get("/assets", async (c) => {
 
 dashboardRoutes.post("/assets", async (c) => {
   try {
-    const body = await c.req.json<Record<string, unknown>>();
+    const body = await readRegistryBody(c);
     const asset = await registerAsset(body);
     return c.json({ data: asset }, 201);
   } catch (error) {
@@ -54,7 +64,7 @@ dashboardRoutes.get("/assets/:assetId/logs", async (c) => {
 
 dashboardRoutes.put("/assets/:assetId/vendor-mappings", async (c) => {
   try {
-    const body = await c.req.json<Record<string, unknown>>();
+    const body = await readRegistryBody(c);
     return c.json({ data: await registerVendorMapping(c.req.param("assetId"), body) });
   } catch (error) {
     return registryErrorResponse(c, error);

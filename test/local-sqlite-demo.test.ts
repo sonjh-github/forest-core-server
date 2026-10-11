@@ -231,3 +231,25 @@ test(
     );
   },
 );
+
+test("SQLite registration rejects malformed input and duplicate vendor identities", async () => {
+  for (const body of ["null", "[]", "{"]) {
+    const response = await app.request("/api/v1/dashboard/assets", { method: "POST", headers: { "content-type": "application/json" }, body });
+    assert.equal(response.status, 400);
+  }
+  const types = await (await app.request("/api/v1/dashboard/asset-types")).json();
+  const payload = { assetTypeId: types.data[0].asset_type_id, assetCode: "REG-ONE", vendor: "NDPS", vendorDeviceId: "REG-DEVICE", deviceType: "UAV" };
+  const post = (value: unknown) => app.request("/api/v1/dashboard/assets", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
+  const first = await post(payload);
+  assert.equal(first.status, 201);
+  const asset = (await first.json()).data;
+  assert.equal(asset.vendor_mappings[0].vendor_device_id, "REG-DEVICE");
+  assert.equal((await post({ ...payload, assetCode: "REG-DUPLICATE" })).status, 409);
+  const second = await post({ ...payload, assetCode: "REG-TWO", vendorDeviceId: "REG-OTHER" });
+  assert.equal(second.status, 201);
+  const other = (await second.json()).data;
+  const conflict = await app.request(`/api/v1/dashboard/assets/${other.asset_id}/vendor-mappings`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+  assert.equal(conflict.status, 409);
+  const detail = (await (await app.request(`/api/v1/dashboard/assets/${other.asset_id}`)).json()).data;
+  assert.equal(detail.vendor_mappings[0].vendor_device_id, "REG-OTHER");
+});

@@ -72,7 +72,7 @@ export async function registerAsset(body: Record<string, unknown>) {
 }
 
 export async function readAsset(assetId: string) {
-  return findRegisteredAsset(parseAssetId(assetId));
+  return findRegisteredAsset(parseAssetId(assetId), true);
 }
 
 export async function readAssets(limitValue?: string) {
@@ -93,7 +93,7 @@ export async function registerVendorMapping(assetIdValue: string, body: Record<s
   if (!vendor || !VENDORS.has(vendor)) throw new RegistryError("INVALID_VENDOR", "vendor는 NDPS 또는 JININFRA여야 합니다.");
   if (!vendorDeviceId || !deviceType) throw new RegistryError("INVALID_REQUEST", "vendorDeviceId와 deviceType은 필수입니다.");
   if (!MAPPING_STATUSES.has(status)) throw new RegistryError("INVALID_REQUEST", "매핑 상태가 올바르지 않습니다.");
-  return upsertVendorDeviceMapping({
+  const mapping = await upsertVendorDeviceMapping({
     vendor_code: vendor,
     vendor_device_id: vendorDeviceId,
     asset_id: assetId,
@@ -102,4 +102,6 @@ export async function registerVendorMapping(assetIdValue: string, body: Record<s
     last_seen_at: new Date().toISOString(),
     metadata: { mappingSource: "DASHBOARD" },
   });
+  if (!mapping) throw new RegistryError("VENDOR_DEVICE_CONFLICT", "다른 장비에 이미 연결된 업체 장비 ID입니다.", 409);
+  return mapping;
 }

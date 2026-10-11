@@ -834,6 +834,13 @@ export function findAsset(
     : null;
 }
 
+function assertVendorDeviceAvailable(vendor: string, vendorDeviceId: string, assetId = "") {
+  const existing = localDb().prepare(`SELECT asset_id FROM asset
+    WHERE vendor_code = ? AND vendor_device_id = ? AND asset_id <> ? LIMIT 1`)
+    .get(vendor, vendorDeviceId, assetId);
+  if (existing) throw new LocalDbError("VENDOR_DEVICE_CONFLICT", "다른 장비에 이미 연결된 업체 장비 ID입니다.", 409);
+}
+
 export function createAsset(
   body:
     Record<string, unknown>,
@@ -877,6 +884,8 @@ export function createAsset(
       body.deviceType,
       "deviceType",
     );
+
+  assertVendorDeviceAvailable(vendor, vendorDeviceId);
 
   const type =
     localDb()
@@ -1004,6 +1013,8 @@ export function updateMapping(
       body.deviceType,
       "deviceType",
     );
+
+  assertVendorDeviceAvailable(vendor, vendorDeviceId, assetId);
 
   const status =
     optionalText(

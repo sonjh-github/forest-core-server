@@ -37,6 +37,16 @@ import {
 export const localDashboardRoutes =
   new Hono();
 
+async function readRegistryBody(c: Context): Promise<Record<string, unknown>> {
+  let body: unknown;
+  try { body = await c.req.json(); }
+  catch { throw new LocalDbError("INVALID_REQUEST", "올바른 JSON 객체를 보내 주세요."); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new LocalDbError("INVALID_REQUEST", "요청 본문은 JSON 객체여야 합니다.");
+  }
+  return body as Record<string, unknown>;
+}
+
 function errorResponse(
   c: Context,
   error: unknown,
@@ -125,12 +135,7 @@ localDashboardRoutes.post(
   async (c) => {
     try {
       const body =
-        await c.req.json<
-          Record<
-            string,
-            unknown
-          >
-        >();
+        await readRegistryBody(c);
 
       return c.json(
         {
@@ -213,12 +218,7 @@ localDashboardRoutes.put(
   async (c) => {
     try {
       const body =
-        await c.req.json<
-          Record<
-            string,
-            unknown
-          >
-        >();
+        await readRegistryBody(c);
 
       return c.json({
         data:

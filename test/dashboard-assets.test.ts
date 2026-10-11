@@ -204,7 +204,7 @@ test("dashboard 업체 장비 매핑 API는 asset UUID에 업체 번호를 연�
       const query = {
         upsert: (row: Record<string, unknown>) => { mappingRow = row; return query; },
         select: () => query,
-        single: async () => ({ data: mappingRow, error: null }),
+        maybeSingle: async () => ({ data: mappingRow, error: null }),
       };
       return query;
     } }),
@@ -224,4 +224,53 @@ test("dashboard 업체 장비 매핑 API는 asset UUID에 업체 번호를 연�
   } finally {
     Object.assign(supabase, { schema: originalSchema });
   }
+});
+
+ test("registration rejects malformed and non-object bodies", async () => {
+  const { app } = await import("../src/app.js");
+  for (const method of ["POST", "PUT"]) {
+    const path = method === "POST" ? "/api/v1/dashboard/assets" : "/api/v1/dashboard/assets/20000000-0000-4000-8000-000000000099/vendor-mappings";
+    for (const body of ["null", "[]", "{", '"text"']) {
+      const response = await app.request(path, { method, headers: { "content-type": "application/json" }, body });
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error.code, "INVALID_REQUEST");
+    }
+  }
+});
+ test("vendor mapping does not overwrite another asset", async () => {
+  const { supabase } = await import("../src/db/client.js");
+  const original = supabase.schema.bind(supabase);
+  const filters: Record<string, unknown> = {};
+  Object.assign(supabase, { schema: () => ({ from: (table: string) => {
+    const q = { select: () => q, eq: (key: string, value: unknown) => { filters[key] = value; return q; },
+      upsert: (_row: unknown, options: { ignoreDuplicates: boolean }) => { assert.equal(options.ignoreDuplicates, true); return q; },
+      update: (row: Record<string, unknown>) => { assert.equal("asset_id" in row, false); return q; },
+      maybeSingle: async () => ({ data: table === "asset" ? { asset_id: "20000000-0000-4000-8000-000000000099" } : null, error: null }) };
+    return q;
+  } }) });
+  try {
+    const { app } = await import("../src/app.js");
+    const response = await app.request("/api/v1/dashboard/assets/20000000-0000-4000-8000-000000000099/vendor-mappings", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ vendor: "NDPS", vendorDeviceId: "EXISTING", deviceType: "UAV" }) });
+    assert.equal(response.status, 409);
+    assert.equal(filters.asset_id, "20000000-0000-4000-8000-000000000099");
+  } finally { Object.assign(supabase, { schema: original }); }
+});
+
+test("asset detail includes vendor mappings", async () => {
+  const { supabase } = await import("../src/db/client.js");
+  const original = supabase.schema.bind(supabase);
+  const mapping = { vendor_code: "NDPS", vendor_device_id: "DRONE-1", device_type: "UAV", status: "ACTIVE" };
+  Object.assign(supabase, { schema: () => ({ from: (table: string) => {
+    const q = { select: () => q, eq: () => table === "asset" ? q : Promise.resolve({ data: [mapping], error: null }),
+      maybeSingle: async () => ({ data: { asset_id: "20000000-0000-4000-8000-000000000099" }, error: null }) };
+    return q;
+  } }) });
+  try {
+    const { app } = await import("../src/app.js");
+    const response = await app.request("/api/v1/dashboard/assets/20000000-0000-4000-8000-000000000099");
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).data.vendor_mappings, [mapping]);
+  } finally { Object.assign(supabase, { schema: original }); }
 });

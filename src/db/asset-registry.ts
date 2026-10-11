@@ -56,13 +56,18 @@ export async function insertAssetWithVendorMapping(asset: CreateAssetRow, mappin
   return data;
 }
 
-export async function findRegisteredAsset(assetId: string) {
+export async function findRegisteredAsset(assetId: string, includeMappings = false) {
   const { data, error } = await supabase.schema("core").from("asset")
     .select(ASSET_SELECT)
     .eq("asset_id", assetId)
     .maybeSingle();
   if (error) throw error;
-  return data;
+  if (!data || !includeMappings) return data;
+  const { data: mappings, error: mappingError } = await supabase.schema("core").from("vendor_device_mapping")
+    .select("vendor_code,vendor_device_id,asset_id,device_type,status,first_seen_at,last_seen_at")
+    .eq("asset_id", assetId);
+  if (mappingError) throw mappingError;
+  return { ...data, vendor_mappings: mappings ?? [] };
 }
 
 export async function listRegisteredAssets(limit: number) {
@@ -104,9 +109,16 @@ export async function upsertVendorDeviceMapping(row: {
   metadata: Record<string, unknown>;
 }) {
   const { data, error } = await supabase.schema("core").from("vendor_device_mapping")
-    .upsert(row, { onConflict: "vendor_code,vendor_device_id" })
+    .upsert(row, { onConflict: "vendor_code,vendor_device_id", ignoreDuplicates: true })
     .select("vendor_code,vendor_device_id,asset_id,device_type,status,first_seen_at,last_seen_at,metadata")
-    .single();
+    .maybeSingle();
   if (error) throw error;
-  return data;
+  if (data) return data;
+  const updated = await supabase.schema("core").from("vendor_device_mapping")
+    .update({ device_type: row.device_type, status: row.status, last_seen_at: row.last_seen_at, metadata: row.metadata })
+    .eq("vendor_code", row.vendor_code).eq("vendor_device_id", row.vendor_device_id).eq("asset_id", row.asset_id)
+    .select("vendor_code,vendor_device_id,asset_id,device_type,status,first_seen_at,last_seen_at,metadata")
+    .maybeSingle();
+  if (updated.error) throw updated.error;
+  return updated.data;
 }
