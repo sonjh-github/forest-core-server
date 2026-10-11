@@ -253,3 +253,13 @@ test("SQLite registration rejects malformed input and duplicate vendor identitie
   const detail = (await (await app.request(`/api/v1/dashboard/assets/${other.asset_id}`)).json()).data;
   assert.equal(detail.vendor_mappings[0].vendor_device_id, "REG-OTHER");
 });
+
+test("recent vendor telemetry reads use indexes without full scans or temporary sorting", async () => {
+  const { localDb } = await import("../src/local-demo/db.js");
+  for (const filter of ["", " AND payload_type = 'RTK_POSITION'"]) {
+    const rows = localDb().prepare(`EXPLAIN QUERY PLAN SELECT * FROM vendor_message WHERE vendor_code = 'JININFRA' AND status = 'PERSISTED'${filter} ORDER BY occurred_at DESC LIMIT 200`).all();
+    const details = rows.map(row => String(row.detail)).join("\n");
+    assert.match(details, /SEARCH vendor_message USING INDEX idx_vendor_message_vendor/);
+    assert.doesNotMatch(details, /SCAN vendor_message|TEMP B-TREE/);
+  }
+});

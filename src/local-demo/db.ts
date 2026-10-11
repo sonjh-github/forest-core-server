@@ -226,6 +226,14 @@ function initSchema(
       received_at DESC
     );
 
+    CREATE INDEX IF NOT EXISTS idx_vendor_message_vendor_occurred
+    ON vendor_message(vendor_code, occurred_at DESC)
+    WHERE status = 'PERSISTED';
+
+    CREATE INDEX IF NOT EXISTS idx_vendor_message_vendor_payload_occurred
+    ON vendor_message(vendor_code, payload_type, occurred_at DESC)
+    WHERE status = 'PERSISTED';
+
     CREATE TABLE IF NOT EXISTS drone_telemetry (
       telemetry_id INTEGER PRIMARY KEY AUTOINCREMENT,
       drone_id TEXT NOT NULL,
