@@ -147,6 +147,21 @@ test(
       1
     );
 
+    assert.equal(
+      result.physicalDeviceCount,
+      0
+    );
+
+    assert.equal(
+      result.simulatedDeviceCount,
+      1
+    );
+
+    assert.equal(
+      result.unregisteredDeviceCount,
+      0
+    );
+
     const device =
       result.devices[0];
 
@@ -217,4 +232,29 @@ test(
       "LIVE"
     );
   }
+);
+
+test(
+  "Sleno messages without an asset identity are not counted as physical devices",
+  () => {
+    const result = calculateSlenoQuality(
+      [
+        row(
+          "unregistered-a",
+          10,
+          "2026-09-30T00:00:00.000Z",
+          -60,
+          10,
+        ),
+      ],
+      [],
+      Date.parse("2026-09-30T00:00:01.000Z"),
+    );
+
+    assert.equal(result.deviceCount, 1);
+    assert.equal(result.physicalDeviceCount, 0);
+    assert.equal(result.simulatedDeviceCount, 0);
+    assert.equal(result.unregisteredDeviceCount, 1);
+    assert.equal(result.devices[0]?.isRegisteredDevice, false);
+  },
 );
