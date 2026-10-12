@@ -108,13 +108,7 @@ export const config = {
       ?.trim() ||
     "./data/forest-local-demo.sqlite",
 
-  sqliteSeedDemo:
-    booleanValue(
-      "SQLITE_SEED_DEMO",
-      true,
-    ),
-
-  /*
+/*
    * Supabase와 SQLite는 명시적으로 선택한다.
    * 자동 failback / failover는 하지 않는다.
    */

@@ -20,7 +20,6 @@ import {
 } from "../dashboard/sleno-telemetry.js";
 
 import {
-  DEMO_UAV_ID,
   LocalDbError,
   assetLogs,
   createAsset,
@@ -292,22 +291,12 @@ localDashboardRoutes.get(
         data: {
           ...quality,
 
-          synthetic:
-            config.sqliteSeedDemo &&
-            quality
-              .physicalDeviceCount ===
-            0,
+          synthetic: false,
 
           storageMode:
             "SQLITE",
 
-          demoMode:
-            config.sqliteSeedDemo &&
-            quality
-              .physicalDeviceCount ===
-            0
-              ? "LOCAL_SQLITE"
-              : null,
+          demoMode: null,
         },
       });
     } catch (error) {
@@ -355,133 +344,7 @@ localDashboardRoutes.get(
       });
     }
 
-    if (
-      !config.sqliteSeedDemo
-    ) {
-      return c.json({
-        data: [],
-      });
-    }
-
-    const receivedAt =
-      new Date()
-        .toISOString();
-
-    const observedAt =
-      new Date(
-        Date.now() - 500,
-      ).toISOString();
-
-    return c.json({
-      data: [
-        {
-          eventId,
-
-          assetId:
-            DEMO_UAV_ID,
-
-          sourceAssetId:
-            DEMO_UAV_ID,
-
-          assetType:
-            "UAV",
-
-          observedAt,
-          receivedAt,
-
-          latitude:
-            36.3504,
-
-          longitude:
-            127.3845,
-
-          altitude:
-            142.7,
-
-          operationalStatus:
-            "ACTIVE",
-
-          packetLossPct:
-            1,
-
-          positioningMethod:
-            "RTK",
-
-          synthetic:
-            true,
-
-          evidenceScope:
-            "LOCAL_SQLITE_DEMO",
-
-          attributes: {
-            telemetryPositionSource:
-              "GLOBAL_POSITION_INT(33)",
-
-            gpsFixType: 6,
-
-            satellitesVisible:
-              18,
-
-            hdop:
-              0.82,
-
-            vdop:
-              1.15,
-
-            horizontalAccuracy:
-              0.32,
-
-            verticalAccuracy:
-              0.61,
-
-            pathEvidence: {
-              uplinkReceivedAt:
-                observedAt,
-
-              uplinkForwardStartedAt:
-                observedAt,
-
-              uplinkSource:
-                "LOCAL_SQLITE_DEMO",
-
-              uplinkBytes:
-                64,
-
-              transport:
-                "LOCAL_DEMO",
-
-              coreReceivedAt:
-                receivedAt,
-            },
-
-            linkQuality: {
-              mavlinkVersion: 2,
-              mavlinkSystemId: 1,
-              mavlinkComponentId:
-                1,
-              mavlinkSequence:
-                42,
-              mavlinkMessageId:
-                33,
-              windowExpected:
-                100,
-              windowReceived:
-                99,
-              windowLost:
-                1,
-              packetLossPct:
-                1,
-              periodAvgMs:
-                1000,
-              periodP95Ms:
-                1050,
-              periodMaxMs:
-                1120,
-            },
-          },
-        },
-      ],
-    });
+    return c.json({ data: [] });
   },
 );
 
@@ -505,7 +368,7 @@ export function localHealth() {
       "sqlite",
 
     demoMode:
-      config.sqliteSeedDemo,
+      false,
 
     cloudFallback:
       false,

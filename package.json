@@ -9,7 +9,6 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
-    "local-demo": "tsx src/local-demo/start.ts",
     "fieldlink": "tsx --env-file-if-exists=.env src/fieldlink/start.ts"
   },
   "dependencies": {
