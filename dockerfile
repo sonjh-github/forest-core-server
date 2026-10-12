@@ -14,6 +14,7 @@ ENV NODE_ENV=production \
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY scripts/restore-existing-disaster.mjs ./scripts/restore-existing-disaster.mjs
 USER node
 EXPOSE 18020
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

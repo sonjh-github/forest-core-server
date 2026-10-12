@@ -174,7 +174,8 @@ function initSchema(
       event_code TEXT NOT NULL,
       event_name TEXT NOT NULL,
       disaster_type TEXT NOT NULL,
-      status TEXT NOT NULL
+      status TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}'
     );
 
     CREATE TABLE IF NOT EXISTS event_resource (
@@ -235,6 +236,10 @@ function initSchema(
       received_at DESC
     );
   `);
+  const eventColumns = db.prepare("PRAGMA table_info(disaster_event)").all() as unknown as Row[];
+  if (!eventColumns.some((column) => column.name === "metadata_json")) {
+    db.exec("ALTER TABLE disaster_event ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
+  }
 }
 
 export function localDb():
@@ -974,7 +979,7 @@ export function disasterAssets(
                 ),
             },
 
-            asset,
+            asset: { ...asset, asset_type: asset.asset_type.name },
           };
         },
       )
@@ -988,8 +993,14 @@ export function disasterAssets(
           value !== null,
       );
 
+  const metadata = jsonObject(disaster.metadata_json);
   return {
     disaster: {
+      geometry: metadata.geometry,
+      severityCode: metadata.severity_code,
+      occurredAt: metadata.occurred_at,
+      sourceSystem: metadata.source_system,
+      locationName: metadata.jurisdiction_code,
       disasterId:
         String(
           disaster.event_id,
