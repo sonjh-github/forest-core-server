@@ -1,3 +1,5 @@
+import { config } from "../config.js";
+import { latestLocalSlenoPositions } from "../local-demo/db.js";
 import {
   listVendorMessages,
   type VendorIntegrationMessageRow
@@ -8,7 +10,7 @@ import {
 } from "../device/live-sleno.js";
 
 type JsonRecord = Record<string, unknown>;
-type PositioningMethod = "GNSS" | "DGPS" | "RTK";
+type PositioningMethod = "GNSS" | "DGPS" | "RTK" | "NO_FIX";
 
 type VendorMessageReader = (
   vendorCode: string,
@@ -87,6 +89,8 @@ function positioningMethod(
   const normalized =
     fixType?.trim().toUpperCase() ?? "";
 
+  if (normalized === "FIX_NOT_AVAILABLE") return "NO_FIX";
+
   if (normalized.includes("RTK")) {
     return "RTK";
   }
@@ -155,8 +159,8 @@ export function mapSlenoPositionRows(
       textValue(data.fixType);
 
     /*
-     * No-Fix / 0,0 좌표는
-     * 관제 마커에서 제외.
+     * Missing/invalid coordinates cannot be plotted. Nonzero No-Fix
+     * coordinates remain visible as unconfirmed last-received positions.
      */
     if (
       !assetId ||
@@ -169,11 +173,7 @@ export function mapSlenoPositionRows(
       (
         latitude === 0 &&
         longitude === 0
-      ) ||
-      fixType
-        ?.trim()
-        .toUpperCase() ===
-        "FIX_NOT_AVAILABLE"
+      )
     ) {
       continue;
     }
@@ -231,8 +231,7 @@ export function mapSlenoPositionRows(
       observedAt,
 
       receivedAt:
-        row.occurred_at ||
-        observedAt,
+        row.received_at || row.occurred_at || observedAt,
 
       latitude,
       longitude,
@@ -255,6 +254,10 @@ export function mapSlenoPositionRows(
         positioningMethod(
           fixType
         ),
+
+      positionFetchStatus: fixType?.trim().toUpperCase() === "FIX_NOT_AVAILABLE"
+        ? "측위 미확정 · 마지막 수신 위치"
+        : freshnessSec > 60 ? "과거 관측 위치" : "최근 관측 위치",
 
       attributes: {
         telemetryPositionSource:
@@ -381,8 +384,10 @@ export function mapSlenoPositionRows(
 export async function readSlenoDashboardTelemetry(
   eventId: string,
   reader:
-    VendorMessageReader =
-      listVendorMessages,
+    VendorMessageReader = async (vendor, limit, payloadType) =>
+      config.dbMode === "sqlite"
+        ? latestLocalSlenoPositions()
+        : listVendorMessages(vendor, limit, payloadType),
   nowMs = Date.now()
 ) {
   /*

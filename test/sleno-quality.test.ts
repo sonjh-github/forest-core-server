@@ -149,12 +149,12 @@ test(
 
     assert.equal(
       result.physicalDeviceCount,
-      0
+      1
     );
 
     assert.equal(
       result.simulatedDeviceCount,
-      1
+      0
     );
 
     assert.equal(

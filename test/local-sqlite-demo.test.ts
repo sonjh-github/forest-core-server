@@ -49,3 +49,14 @@ test('registered disaster retains metadata and assigned asset categories without
   const telemetry = await (await app.request(`/api/v1/dashboard/telemetry/drones?eventId=${eventId}`)).json();
   assert.deepEqual(telemetry.data,[]);
 });
+
+test('released resources and inactive inventory are excluded from operating counts', async () => {
+  const { localDb } = await import('../src/local-demo/db.js');
+  const db = localDb();
+  db.prepare("UPDATE asset SET status='INACTIVE' WHERE asset_code='REGISTERED-UAV'").run();
+  db.prepare('UPDATE event_resource SET released_at=?').run('2026-10-12T00:00:00Z');
+  const assets = await (await app.request('/api/v1/dashboard/assets?limit=200')).json();
+  assert.deepEqual(assets.data,[]);
+  const event = await (await app.request('/api/v1/dashboard/disasters/10000000-0000-4000-8000-000000000001/assets')).json();
+  assert.equal(event.data.assetCount,0);
+});

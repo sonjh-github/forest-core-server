@@ -542,6 +542,7 @@ export function listAssets(
     localDb()
       .prepare(
         `${ASSET_SQL}
+         WHERE a.status <> 'INACTIVE'
          ORDER BY a.created_at DESC
          LIMIT ?`,
       )
@@ -920,7 +921,7 @@ export function disasterAssets(
       .prepare(`
         SELECT *
         FROM event_resource
-        WHERE event_id = ?
+        WHERE event_id = ? AND released_at IS NULL
         ORDER BY assigned_at
       `)
       .all(eventId) as
@@ -1000,7 +1001,7 @@ export function disasterAssets(
       severityCode: metadata.severity_code,
       occurredAt: metadata.occurred_at,
       sourceSystem: metadata.source_system,
-      locationName: metadata.jurisdiction_code,
+      locationName: metadata.location_name ?? metadata.jurisdiction_code,
       disasterId:
         String(
           disaster.event_id,
@@ -1037,18 +1038,14 @@ export function disasterAssets(
 export function slenoMessages(
   limit: number,
 ): VendorIntegrationMessageRow[] {
-  const rows =
-    localDb()
-      .prepare(`
-        SELECT *
-        FROM vendor_message
-        WHERE vendor_code = 'JININFRA'
-          AND status = 'PERSISTED'
-        ORDER BY occurred_at DESC
-        LIMIT ?
-      `)
-      .all(limit) as
-      unknown as Row[];
+  const db = localDb();
+  const devices = db.prepare("SELECT asset_id FROM asset WHERE vendor_code='JININFRA' AND status<>'INACTIVE'").all();
+  const perDevice = Math.max(1, Math.floor(limit / Math.max(1, devices.length)));
+  const rows = devices.flatMap(device => db.prepare(`
+    SELECT * FROM vendor_message
+    WHERE source_device_id=? AND vendor_code='JININFRA' AND status='PERSISTED'
+    ORDER BY received_at DESC LIMIT ?
+  `).all(String(device.asset_id), perDevice)) as unknown as Row[];
 
   return rows.map(
     (row) => ({
@@ -1437,4 +1434,24 @@ export function listLocalVendorMessages(
         ),
     }),
   );
+}
+
+
+export function latestLocalSlenoPositions(): VendorIntegrationMessageRow[] {
+  // One indexed lookup per registered device prevents repeated recent packets
+  // from crowding older last-known positions out of a global LIMIT.
+  const rows = localDb().prepare(`
+    SELECT * FROM vendor_message WHERE request_id IN (
+      SELECT (SELECT request_id FROM vendor_message
+        WHERE source_device_id = a.asset_id AND vendor_code = 'JININFRA'
+          AND payload_type = 'RTK_POSITION' AND status = 'PERSISTED'
+        ORDER BY received_at DESC LIMIT 1)
+      FROM asset a WHERE a.vendor_code = 'JININFRA'
+    )`).all() as unknown as Row[];
+  return rows.map(row => ({
+    request_id: String(row.request_id), event_external_id: optionalText(row.event_external_id),
+    payload_type: optionalText(row.payload_type), source_device_id: optionalText(row.source_device_id),
+    occurred_at: String(row.occurred_at), received_at: String(row.received_at),
+    status: String(row.status), payload: jsonObject(row.payload_json),
+  }));
 }

@@ -35,6 +35,7 @@ export type VendorIntegrationMessageRow = {
   payload_type: string | null;
   source_device_id: string | null;
   occurred_at: string;
+  received_at?: string;
   status: string;
   payload: Record<string, unknown> | null;
 };

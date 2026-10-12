@@ -127,6 +127,8 @@ export function rememberLiveSleno(
       occurred_at:
         occurredAt,
 
+      received_at: new Date().toISOString(),
+
       /*
        * 실제 수신 패킷이지만
        * DB 저장 성공 여부와는 분리한다.

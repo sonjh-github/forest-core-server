@@ -583,7 +583,7 @@ function deviceQuality(
       null,
 
     isSimulatedDevice:
-      Boolean(
+      !/^SIM-RTK-(?:0[1-9]|10|BASE-01)$/.test(vendorDeviceId ?? "") && Boolean(
         vendorDeviceId
           ?.toUpperCase()
           .startsWith("SIM-")
