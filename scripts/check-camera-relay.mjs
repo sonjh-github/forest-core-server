@@ -42,7 +42,7 @@ try {
     } finally {await cameraRoutes.request('/sessions/'+id+'/stop',{method:'POST'});}
     process.exit(0);
   `;
-  console.log(docker('run','--rm','--network',network,'-e',`CAMERA_RTSP_ALLOWED_HOSTS=${camera}`,'--entrypoint','node','forest-core-server:verify','--input-type=module','-e',code));
+  console.log(docker('run','--rm','--network',network,'-e','CAMERA_RTSP_ALLOW_PRIVATE=true','--entrypoint','node','forest-core-server:verify','--input-type=module','-e',code));
 } finally {
   spawnSync('docker',['rm','-f',publisher,camera],{stdio:'ignore'});
   spawnSync('docker',['network','rm',network],{stdio:'ignore'});

@@ -29,11 +29,18 @@ export function publicCameraAddress(address: string): boolean {
     (a === 203 && b === 0 && c === 113));
 }
 
+export function privateCameraAddress(address: string): boolean {
+  if (!isIPv4(address)) return false;
+  const [a,b] = address.split(".").map(Number);
+  return a === 10 || (a === 172 && b! >= 16 && b! <= 31) || (a === 192 && b === 168);
+}
+
 async function cameraTarget(uri: string): Promise<string> {
   const url = new URL(uri);
   const allowed = (process.env.CAMERA_RTSP_ALLOWED_HOSTS ?? "").split(",").map(host => host.trim().toLowerCase()).filter(Boolean);
   const {address} = await lookup(url.hostname, {family:4});
-  if (!publicCameraAddress(address) && !allowed.includes(url.hostname.toLowerCase()) && !allowed.includes(address)) {
+  const privateAllowed = process.env.CAMERA_RTSP_ALLOW_PRIVATE === "true" && privateCameraAddress(address);
+  if (!publicCameraAddress(address) && !privateAllowed && !allowed.includes(url.hostname.toLowerCase()) && !allowed.includes(address)) {
     throw new Error("사설망 카메라는 운영 서버의 허용 주소 설정이 필요합니다.");
   }
   // Pin the checked IP; a second DNS lookup in FFmpeg must not bypass the check.

@@ -71,6 +71,7 @@ jobs:
               --env-file /home/ubuntu/server/forest-core-server/.env \
               -e SQLITE_PATH=/app/data/forest.sqlite \
               -e SQLITE_SEED_DEMO=false \
+              -e CAMERA_RTSP_ALLOW_PRIVATE=true \
               -v /home/ubuntu/server/forest-core-server/data:/app/data \
               -p 127.0.0.1:18020:18020 \
               forest-core-server
