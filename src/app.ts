@@ -1,3 +1,4 @@
+import { cameraRoutes } from "./video/cameras.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { config } from "./config.js";
@@ -83,6 +84,7 @@ app.route(
 app.route("/api/v1/external", externalRoutes);
 app.route("/api/v1/assets", videoRoutes);
 app.route("/api/v1/dashboard/kpi", dashboardKpiRoutes);
+app.route("/api/v1/dashboard/cameras", cameraRoutes);
 
 app.notFound((c) =>
   c.json(
