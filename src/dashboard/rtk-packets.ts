@@ -54,15 +54,16 @@ export function rtkSharingWindow(deviceId:string, latest:ReturnType<typeof mapRt
   if(!latest || counter==null || !Number.isSafeInteger(counter) || counter<0 || storageRowId==null)return null;
   const fromCounter=Math.max(0,counter-99);
   const expectedCount=counter-fromCounter+1;
+  // The vendor/type index scans every device; use the existing device index for this window.
   const received=localDb().prepare(`SELECT DISTINCT json_extract(payload_json,'$.data.frameCounter') counter
-    FROM vendor_message
+    FROM vendor_message INDEXED BY idx_vendor_message_device_received
     WHERE source_device_id=? AND vendor_code='JININFRA' AND payload_type='RTK_POSITION'
       AND status='PERSISTED' AND rowid<=? AND json_valid(payload_json)
       AND json_type(payload_json,'$.data.frameCounter') IN ('integer','real')
       AND json_extract(payload_json,'$.data.frameCounter') BETWEEN ? AND ?
       AND json_extract(payload_json,'$.data.frameCounter')=CAST(json_extract(payload_json,'$.data.frameCounter') AS INTEGER)
       AND json_extract(payload_json,'$.data.devEui') IS ?
-    ORDER BY counter`).all(deviceId,storageRowId,fromCounter,counter,latest.devEui) as Array<{counter:number}>;
+    LIMIT ?`).all(deviceId,storageRowId,fromCounter,counter,latest.devEui,expectedCount) as Array<{counter:number}>;
   return {fromCounter,toCounter:counter,expectedCount,receivedCount:received.length,
     missingCount:expectedCount-received.length,successRatePercent:received.length/expectedCount*100};
 }
