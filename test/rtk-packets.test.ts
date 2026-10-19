@@ -40,3 +40,31 @@ test("선택 장비의 RTK 위치 패킷만 최신 수신 순서로 정확히 10
   assert.equal(data.summary.zero,100);assert.equal(data.summary.noFix,100);assert.equal(data.summary.confirmed,0);
   assert.equal((await rtkRoutes.request('/packets?assetId=missing')).status,404);
 });
+
+
+test("정보 공유 성공률은 최근 100건이 아닌 최신 FCnt부터 100개 번호의 전체 수신 기록으로 계산한다",async()=>{
+  const db=localDb();
+  db.prepare("INSERT INTO asset(asset_id,asset_type_id,asset_code,status,vendor_code,created_at,updated_at) VALUES('window-device','rtk-type','WINDOW','READY','JININFRA','2026-10-19','2026-10-19')").run();
+  const insert=db.prepare("INSERT INTO vendor_message(request_id,vendor_code,payload_type,source_device_id,occurred_at,received_at,status,payload_json) VALUES(?,'JININFRA','RTK_POSITION','window-device','2026-10-19T00:00:00Z','2026-10-19T00:00:00Z','PERSISTED',?)");
+  for(let i=0;i<=300;i++)if(![202,205,299].includes(i))insert.run('window-'+i,JSON.stringify({data:{frameCounter:i,devEui:'current'}}));
+  // Other hardware with the same asset mapping must not fill the missing counters.
+  for(const i of [202,205,299])insert.run('old-eui-'+i,JSON.stringify({data:{frameCounter:i,devEui:'old'}}));
+  insert.run('failed-frame',JSON.stringify({data:{frameCounter:202,devEui:'current'}}));
+  db.prepare("UPDATE vendor_message SET status='REJECTED' WHERE request_id='failed-frame'").run();
+  for(let i=0;i<150;i++)insert.run('repeat-'+i,JSON.stringify({data:{frameCounter:300,devEui:'current'}}));
+  const {data}=await (await rtkRoutes.request('/packets?assetId=window-device')).json() as any;
+  assert.equal(data.packets.length,100);assert.ok(data.packets.every((packet:any)=>packet.frameCounter===300));
+  assert.deepEqual(data.sharingWindow,{fromCounter:201,toCounter:300,expectedCount:100,receivedCount:97,missingCount:3,successRatePercent:97});
+  insert.run('invalid-latest',JSON.stringify({data:{frameCounter:null,devEui:'current'}}));
+  const invalid=await (await rtkRoutes.request('/packets?assetId=window-device')).json() as any;
+  assert.equal(invalid.data.sharingWindow,null);
+});
+
+test("FCnt 시작 구간은 음수 번호를 만들지 않고 0번도 수신으로 센다",async()=>{
+  const db=localDb();
+  db.prepare("INSERT INTO asset(asset_id,asset_type_id,asset_code,status,vendor_code,created_at,updated_at) VALUES('start-device','rtk-type','START','READY','JININFRA','2026-10-19','2026-10-19')").run();
+  const insert=db.prepare("INSERT INTO vendor_message(request_id,vendor_code,payload_type,source_device_id,occurred_at,received_at,status,payload_json) VALUES(?,'JININFRA','RTK_POSITION','start-device','2026-10-19T00:00:00Z','2026-10-19T00:00:00Z','PERSISTED',?)");
+  for(const i of [0,1,3])insert.run('start-'+i,JSON.stringify({data:{frameCounter:i}}));
+  const {data}=await (await rtkRoutes.request('/packets?assetId=start-device')).json() as any;
+  assert.deepEqual(data.sharingWindow,{fromCounter:0,toCounter:3,expectedCount:4,receivedCount:3,missingCount:1,successRatePercent:75});
+});

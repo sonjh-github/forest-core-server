@@ -49,6 +49,24 @@ export function rtkReceptionState(receivedAt: string | null, now = Date.now()) {
   return age <= 30_000 ? "RECEIVING" : age <= 120_000 ? "DELAYED" : "NO_RECENT_RECEPTION";
 }
 
+export function rtkSharingWindow(deviceId:string, latest:ReturnType<typeof mapRtkPacket>|undefined, storageRowId:number|undefined) {
+  const counter=latest?.frameCounter;
+  if(!latest || counter==null || !Number.isSafeInteger(counter) || counter<0 || storageRowId==null)return null;
+  const fromCounter=Math.max(0,counter-99);
+  const expectedCount=counter-fromCounter+1;
+  const received=localDb().prepare(`SELECT DISTINCT json_extract(payload_json,'$.data.frameCounter') counter
+    FROM vendor_message
+    WHERE source_device_id=? AND vendor_code='JININFRA' AND payload_type='RTK_POSITION'
+      AND status='PERSISTED' AND rowid<=? AND json_valid(payload_json)
+      AND json_type(payload_json,'$.data.frameCounter') IN ('integer','real')
+      AND json_extract(payload_json,'$.data.frameCounter') BETWEEN ? AND ?
+      AND json_extract(payload_json,'$.data.frameCounter')=CAST(json_extract(payload_json,'$.data.frameCounter') AS INTEGER)
+      AND json_extract(payload_json,'$.data.devEui') IS ?
+    ORDER BY counter`).all(deviceId,storageRowId,fromCounter,counter,latest.devEui) as Array<{counter:number}>;
+  return {fromCounter,toCounter:counter,expectedCount,receivedCount:received.length,
+    missingCount:expectedCount-received.length,successRatePercent:received.length/expectedCount*100};
+}
+
 export const rtkRoutes = new Hono();
 rtkRoutes.get("/packets", (c) => {
   c.header("Cache-Control","no-store");
@@ -61,17 +79,18 @@ rtkRoutes.get("/packets", (c) => {
   const requestedId = c.req.query("assetId");
   const selected = requestedId ? devices.find(device => device.id === requestedId) : devices[0];
   if (requestedId && !selected) return c.json({error:{code:"ASSET_NOT_FOUND",message:"운용 중인 RTK 장비를 찾을 수 없습니다."}},404);
-  const rows = selected ? db.prepare(`SELECT * FROM vendor_message
+  const rows = selected ? db.prepare(`SELECT rowid storageRowId,* FROM vendor_message
     WHERE source_device_id=? AND vendor_code='JININFRA' AND payload_type='RTK_POSITION'
     ORDER BY received_at DESC,rowid DESC LIMIT 100`).all(selected.id) as Json[] : [];
   const packets = rows.map(mapRtkPacket);
+  const sharingWindow=selected ? rtkSharingWindow(selected.id,packets[0],rows[0]?.storageRowId as number|undefined) : null;
   const live = selected ? readLiveSlenoRows().find(row => row.source_device_id === selected.id) : undefined;
   const receivedTimes = [packets[0]?.receivedAt,live?.received_at].filter((value): value is string => Boolean(value) && Number.isFinite(Date.parse(value!)));
   const latestReceivedAt = receivedTimes.sort((a,b) => Date.parse(b)-Date.parse(a))[0] ?? null;
   const receiverState = rtkReceptionState(latestReceivedAt);
   return c.json({data:{
     devices, selectedDevice:selected ?? null, packets, limit:100, checkedAt:new Date().toISOString(),
-    receiverState, latestReceivedAt, lastStoredAt:packets[0]?.receivedAt ?? null,
+    sharingWindow,receiverState, latestReceivedAt, lastStoredAt:packets[0]?.receivedAt ?? null,
     summary:{count:packets.length,confirmed:packets.filter(packet => packet.coordinateState === "VALID").length,
       noFix:packets.filter(packet => packet.fixState === "NO_FIX").length,
       zero:packets.filter(packet => packet.coordinateState === "ZERO").length,
