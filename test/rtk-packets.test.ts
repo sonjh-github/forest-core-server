@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 process.env.DB_MODE="sqlite";
 process.env.SQLITE_PATH=":memory:";
-const {rtkRoutes,mapRtkPacket,rtkReceptionState}=await import("../src/dashboard/rtk-packets.js");
+const {rtkRoutes,mapRtkPacket,rtkReceptionState,rtkDeliverySummary}=await import("../src/dashboard/rtk-packets.js");
 const {localDb}=await import("../src/local-demo/db.js");
 
 test("RTK Fix와 좌표 유효성을 분리하고 0·음수·원문을 보존한다",()=>{
@@ -42,7 +42,7 @@ test("선택 장비의 RTK 위치 패킷만 최신 수신 순서로 정확히 10
 });
 
 
-test("정보 공유 성공률은 최근 100건이 아닌 최신 FCnt부터 100개 번호의 전체 수신 기록으로 계산한다",async()=>{
+test("최근 100건이 동일 번호이면 과거 수신 번호가 많아도 성공률을 만들지 않는다",async()=>{
   const db=localDb();
   db.prepare("INSERT INTO asset(asset_id,asset_type_id,asset_code,status,vendor_code,created_at,updated_at) VALUES('window-device','rtk-type','WINDOW','READY','JININFRA','2026-10-19','2026-10-19')").run();
   const insert=db.prepare("INSERT INTO vendor_message(request_id,vendor_code,payload_type,source_device_id,occurred_at,received_at,status,payload_json) VALUES(?,'JININFRA','RTK_POSITION','window-device','2026-10-19T00:00:00Z','2026-10-19T00:00:00Z','PERSISTED',?)");
@@ -54,7 +54,7 @@ test("정보 공유 성공률은 최근 100건이 아닌 최신 FCnt부터 100�
   for(let i=0;i<150;i++)insert.run('repeat-'+i,JSON.stringify({data:{frameCounter:300,devEui:'current'}}));
   const {data}=await (await rtkRoutes.request('/packets?assetId=window-device')).json() as any;
   assert.equal(data.packets.length,100);assert.ok(data.packets.every((packet:any)=>packet.frameCounter===300));
-  assert.deepEqual(data.sharingWindow,{fromCounter:201,toCounter:300,expectedCount:100,receivedCount:97,missingCount:3,successRatePercent:97});
+  assert.equal(data.sharingWindow,null);assert.equal(data.sharingIssue,"NO_PROGRESS");
   insert.run('invalid-latest',JSON.stringify({data:{frameCounter:null,devEui:'current'}}));
   const invalid=await (await rtkRoutes.request('/packets?assetId=window-device')).json() as any;
   assert.equal(invalid.data.sharingWindow,null);
@@ -66,5 +66,18 @@ test("FCnt 시작 구간은 음수 번호를 만들지 않고 0번도 수신으�
   const insert=db.prepare("INSERT INTO vendor_message(request_id,vendor_code,payload_type,source_device_id,occurred_at,received_at,status,payload_json) VALUES(?,'JININFRA','RTK_POSITION','start-device','2026-10-19T00:00:00Z','2026-10-19T00:00:00Z','PERSISTED',?)");
   for(const i of [0,1,3])insert.run('start-'+i,JSON.stringify({data:{frameCounter:i}}));
   const {data}=await (await rtkRoutes.request('/packets?assetId=start-device')).json() as any;
-  assert.deepEqual(data.sharingWindow,{fromCounter:0,toCounter:3,expectedCount:4,receivedCount:3,missingCount:1,successRatePercent:75});
+  assert.deepEqual(data.sharingWindow,{fromCounter:0,toCounter:3,expectedCount:4,receivedCount:3,missingCount:1,successRatePercent:75,sampleCount:3,duplicateCount:0});
+});
+
+
+test("수신 기록의 번호 범위로 예상 개수·실수신·누락·중복을 구분한다",()=>{
+  const counters=Array.from({length:100},(_,i)=>199-i).filter(n=>![101,102,103,104,105,106,107,108,109,110].includes(n));
+  const packets=[...Array(10).fill({frameCounter:199}),...counters.map(frameCounter=>({frameCounter}))];
+  const result=rtkDeliverySummary(packets);
+  assert.deepEqual(result.window,{fromCounter:100,toCounter:199,expectedCount:100,receivedCount:90,missingCount:10,successRatePercent:90,sampleCount:100,duplicateCount:10});
+});
+test("번호 역전·초기화 의심·번호 누락은 수신율을 임의 계산하지 않는다",()=>{
+  assert.equal(rtkDeliverySummary([{frameCounter:1},{frameCounter:65535}]).issue,"COUNTER_ORDER");
+  assert.equal(rtkDeliverySummary([{frameCounter:2},{frameCounter:null}]).issue,"INVALID_COUNTER");
+  assert.equal(rtkDeliverySummary([]).issue,"NO_RECORDS");
 });
