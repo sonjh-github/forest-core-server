@@ -1,3 +1,4 @@
+import { rtkRoutes } from "../dashboard/rtk-packets.js";
 import {
   randomUUID,
 } from "node:crypto";
@@ -384,3 +385,5 @@ export function localHealth() {
         .toISOString(),
   };
 }
+
+localDashboardRoutes.route("/rtk", rtkRoutes);
