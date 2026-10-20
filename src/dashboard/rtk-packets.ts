@@ -49,23 +49,33 @@ export function rtkReceptionState(receivedAt: string | null, now = Date.now()) {
   return age <= 30_000 ? "RECEIVING" : age <= 120_000 ? "DELAYED" : "NO_RECENT_RECEPTION";
 }
 
-export function rtkDeliverySummary(packets:Array<{frameCounter:number|null}>) {
-  if(!packets.length)return {window:null,issue:"NO_RECORDS"};
+export function rtkDeliverySummary(packets:Array<{frameCounter:number|null;receivedAt?:string|null;occurredAt?:string|null}>) {
+  const records=packets.slice(0,101);
+  const point=(packet:typeof records[number]|undefined)=>packet ? {frameCounter:packet.frameCounter,receivedAt:packet.receivedAt ?? null,occurredAt:packet.occurredAt ?? null} : null;
+  const comparison={offset:100,requiredRecords:101,availableRecords:records.length,
+    latest:point(records[0]),baseline:point(records[100])};
+  if(records.length<101)return {window:null,issue:"WAITING_HISTORY",comparison};
   const counters:number[]=[];
-  for(const packet of packets) {
+  for(const packet of records) {
     const counter=packet.frameCounter;
-    if(counter==null || !Number.isSafeInteger(counter) || counter<0)return {window:null,issue:"INVALID_COUNTER"};
+    if(counter==null || !Number.isSafeInteger(counter) || counter<0)return {window:null,issue:"INVALID_COUNTER",comparison};
     counters.push(counter);
   }
-  // Records arrive newest first. Reversal can mean reset or out-of-order delivery.
-  if(counters.some((counter,index)=>index>0 && counter>counters[index-1]!))return {window:null,issue:"COUNTER_ORDER"};
-  const unique=new Set(counters);
-  if(unique.size<2)return {window:null,issue:"NO_PROGRESS"};
-  const fromCounter=Math.min(...counters),toCounter=Math.max(...counters);
-  const expectedCount=toCounter-fromCounter+1;
-  return {window:{fromCounter,toCounter,expectedCount,receivedCount:unique.size,
-    missingCount:expectedCount-unique.size,successRatePercent:unique.size/expectedCount*100,
-    sampleCount:packets.length,duplicateCount:packets.length-unique.size},issue:null};
+  if(counters.some((counter,index)=>index>0 && counter>counters[index-1]!))return {window:null,issue:"COUNTER_ORDER",comparison};
+  const baseline=counters[100]!,latest=counters[0]!;
+  if(latest===baseline)return {window:null,issue:"NO_PROGRESS",comparison};
+  // The baseline was already received; evaluate only the numbers after it.
+  const received=[...new Set(counters.filter(counter=>counter>baseline))].sort((a,b)=>a-b);
+  const expectedCount=latest-baseline;
+  const missingRanges:Array<{from:number;to:number}>=[];
+  let next=baseline+1;
+  for(const counter of received) {
+    if(counter>next)missingRanges.push({from:next,to:counter-1});
+    next=counter+1;
+  }
+  return {window:{fromCounter:baseline+1,toCounter:latest,expectedCount,receivedCount:received.length,
+    missingCount:expectedCount-received.length,missingRanges,successRatePercent:received.length/expectedCount*100,
+    sampleCount:100,duplicateCount:100-received.length},issue:null,comparison};
 }
 
 export const rtkRoutes = new Hono();
@@ -82,16 +92,17 @@ rtkRoutes.get("/packets", (c) => {
   if (requestedId && !selected) return c.json({error:{code:"ASSET_NOT_FOUND",message:"운용 중인 RTK 장비를 찾을 수 없습니다."}},404);
   const rows = selected ? db.prepare(`SELECT * FROM vendor_message
     WHERE source_device_id=? AND vendor_code='JININFRA' AND payload_type='RTK_POSITION'
-    ORDER BY received_at DESC,rowid DESC LIMIT 100`).all(selected.id) as Json[] : [];
-  const packets = rows.map(mapRtkPacket);
-  const sharing=rtkDeliverySummary(packets);
+    ORDER BY received_at DESC,rowid DESC LIMIT 101`).all(selected.id) as Json[] : [];
+  const records = rows.map(mapRtkPacket);
+  const packets = records.slice(0,100);
+  const sharing=rtkDeliverySummary(records);
   const live = selected ? readLiveSlenoRows().find(row => row.source_device_id === selected.id) : undefined;
   const receivedTimes = [packets[0]?.receivedAt,live?.received_at].filter((value): value is string => Boolean(value) && Number.isFinite(Date.parse(value!)));
   const latestReceivedAt = receivedTimes.sort((a,b) => Date.parse(b)-Date.parse(a))[0] ?? null;
   const receiverState = rtkReceptionState(latestReceivedAt);
   return c.json({data:{
     devices, selectedDevice:selected ?? null, packets, limit:100, checkedAt:new Date().toISOString(),
-    sharingWindow:sharing.window,sharingIssue:sharing.issue,receiverState, latestReceivedAt, lastStoredAt:packets[0]?.receivedAt ?? null,
+    sharingWindow:sharing.window,sharingIssue:sharing.issue,sharingComparison:sharing.comparison,receiverState, latestReceivedAt, lastStoredAt:packets[0]?.receivedAt ?? null,
     summary:{count:packets.length,confirmed:packets.filter(packet => packet.coordinateState === "VALID").length,
       noFix:packets.filter(packet => packet.fixState === "NO_FIX").length,
       zero:packets.filter(packet => packet.coordinateState === "ZERO").length,

@@ -37,6 +37,10 @@ test("선택 장비의 RTK 위치 패킷만 최신 수신 순서로 정확히 10
   assert.equal(response.status,200);
   const {data}=await response.json() as any;
   assert.equal(data.packets.length,100);assert.equal(data.packets[0].frameCounter,109);assert.equal(data.packets[99].frameCounter,10);
+  assert.equal(data.sharingComparison.baseline.frameCounter,9);
+  assert.equal(data.sharingComparison.latest.frameCounter,109);
+  assert.equal(data.sharingWindow.expectedCount,100);
+  assert.equal(data.sharingWindow.missingCount,0);
   assert.equal(data.summary.zero,100);assert.equal(data.summary.noFix,100);assert.equal(data.summary.confirmed,0);
   assert.equal((await rtkRoutes.request('/packets?assetId=missing')).status,404);
 });
@@ -60,24 +64,44 @@ test("최근 100건이 동일 번호이면 과거 수신 번호가 많아도 성
   assert.equal(invalid.data.sharingWindow,null);
 });
 
-test("FCnt 시작 구간은 음수 번호를 만들지 않고 0번도 수신으로 센다",async()=>{
+test("100건 전 기록이 없는 장비는 계산하지 않고 대기한다",async()=>{
   const db=localDb();
   db.prepare("INSERT INTO asset(asset_id,asset_type_id,asset_code,status,vendor_code,created_at,updated_at) VALUES('start-device','rtk-type','START','READY','JININFRA','2026-10-19','2026-10-19')").run();
   const insert=db.prepare("INSERT INTO vendor_message(request_id,vendor_code,payload_type,source_device_id,occurred_at,received_at,status,payload_json) VALUES(?,'JININFRA','RTK_POSITION','start-device','2026-10-19T00:00:00Z','2026-10-19T00:00:00Z','PERSISTED',?)");
   for(const i of [0,1,3])insert.run('start-'+i,JSON.stringify({data:{frameCounter:i}}));
   const {data}=await (await rtkRoutes.request('/packets?assetId=start-device')).json() as any;
-  assert.deepEqual(data.sharingWindow,{fromCounter:0,toCounter:3,expectedCount:4,receivedCount:3,missingCount:1,successRatePercent:75,sampleCount:3,duplicateCount:0});
+  assert.equal(data.sharingWindow,null);assert.equal(data.sharingIssue,"WAITING_HISTORY");assert.equal(data.sharingComparison.availableRecords,3);assert.equal(data.sharingComparison.baseline,null);
 });
 
 
 test("수신 기록의 번호 범위로 예상 개수·실수신·누락·중복을 구분한다",()=>{
   const counters=Array.from({length:100},(_,i)=>199-i).filter(n=>![101,102,103,104,105,106,107,108,109,110].includes(n));
-  const packets=[...Array(10).fill({frameCounter:199}),...counters.map(frameCounter=>({frameCounter}))];
+  const packets=[...Array(10).fill({frameCounter:199}),...counters.map(frameCounter=>({frameCounter})),{frameCounter:99}];
   const result=rtkDeliverySummary(packets);
-  assert.deepEqual(result.window,{fromCounter:100,toCounter:199,expectedCount:100,receivedCount:90,missingCount:10,successRatePercent:90,sampleCount:100,duplicateCount:10});
+  assert.deepEqual(result.window,{fromCounter:100,toCounter:199,expectedCount:100,receivedCount:90,missingCount:10,missingRanges:[{from:101,to:110}],successRatePercent:90,sampleCount:100,duplicateCount:10});
 });
 test("번호 역전·초기화 의심·번호 누락은 수신율을 임의 계산하지 않는다",()=>{
-  assert.equal(rtkDeliverySummary([{frameCounter:1},{frameCounter:65535}]).issue,"COUNTER_ORDER");
-  assert.equal(rtkDeliverySummary([{frameCounter:2},{frameCounter:null}]).issue,"INVALID_COUNTER");
-  assert.equal(rtkDeliverySummary([]).issue,"NO_RECORDS");
+  assert.equal(rtkDeliverySummary([...Array(100).fill({frameCounter:1}),{frameCounter:65535}]).issue,"COUNTER_ORDER");
+  assert.equal(rtkDeliverySummary([...Array(100).fill({frameCounter:2}),{frameCounter:null}]).issue,"INVALID_COUNTER");
+  assert.equal(rtkDeliverySummary([]).issue,"WAITING_HISTORY");
+});
+
+test("100건 전은 101번째 기록이며 100건만 있으면 아직 대기한다",()=>{
+  const records=Array.from({length:101},(_,i)=>({frameCounter:100-i}));
+  assert.equal(rtkDeliverySummary(records.slice(0,100)).issue,"WAITING_HISTORY");
+  const result=rtkDeliverySummary(records);
+  assert.equal(result.comparison.baseline?.frameCounter,0);
+  assert.equal(result.window?.expectedCount,100);assert.equal(result.window?.receivedCount,100);
+});
+test("누락 번호는 개별 번호와 연속 범위로 빠짐없이 반환한다",()=>{
+  const absent=[2,5,6,100,101,102];
+  const records=Array.from({length:107},(_,i)=>106-i).filter(n=>!absent.includes(n)).map(frameCounter=>({frameCounter}));
+  const result=rtkDeliverySummary(records);
+  assert.equal(result.window?.missingCount,6);
+  assert.deepEqual(result.window?.missingRanges,[{from:2,to:2},{from:5,to:6},{from:100,to:102}]);
+});
+test("번호가 크게 건너뛰어도 누락 번호를 무한히 나열하지 않고 범위로 반환한다",()=>{
+  const result=rtkDeliverySummary([...Array(100).fill({frameCounter:1_000_000_000}),{frameCounter:0}]);
+  assert.equal(result.window?.missingCount,999_999_999);
+  assert.deepEqual(result.window?.missingRanges,[{from:1,to:999_999_999}]);
 });
