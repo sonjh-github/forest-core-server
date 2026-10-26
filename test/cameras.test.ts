@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cameraReceptionStatus, cameraRoutes, validCameraUri, publicCameraAddress, privateCameraAddress } from "../src/video/cameras.js";
+process.env.DB_MODE="sqlite";
+process.env.SQLITE_PATH=":memory:";
+const {cameraReceptionStatus,cameraRoutes,validCameraUri,publicCameraAddress,privateCameraAddress}=await import("../src/video/cameras.js");
 
 test("카메라는 RTSP 주소만 허용하고 인증 정보·경로·쿼리를 유지한다", async () => {
   assert.equal(validCameraUri("rtsp://operator:secret@192.168.0.10:554/live?channel=1"),true);
@@ -35,10 +37,18 @@ test("실패한 영상 연결은 오류 상태를 반환하고 중지 시 세션
       state = ((await response.json()) as {data:{status:string}}).data.status;
     }
     assert.equal(state,"FAILED");
+    const measurement=await (await cameraRoutes.request(`/sessions/${id}`)).json() as any;
+    assert.equal(measurement.data.availability.network,"TVWS");
+    assert.equal(measurement.data.availability.endedAt,null);
     assert.equal((await cameraRoutes.request(`/sessions/${id}/index.m3u8`)).status,502);
     assert.equal((await cameraRoutes.request(`/sessions/${id}/credentials.json`)).status,404);
   } finally {
-    assert.equal((await cameraRoutes.request(`/sessions/${id}/stop`,{method:"POST"})).status,200);
+    const stopped=await cameraRoutes.request(`/sessions/${id}/stop`,{method:"POST"});
+    assert.equal(stopped.status,200);
+    const result=await stopped.json() as any;
+    assert.ok(result.data.availability.endedAt);
+    assert.ok(result.data.availability.downMs>0);
+    assert.equal(result.data.availability.availabilityPercent,0);
   }
   assert.equal((await cameraRoutes.request(`/sessions/${id}`)).status,404);
 });

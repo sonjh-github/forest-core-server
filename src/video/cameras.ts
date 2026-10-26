@@ -1,3 +1,4 @@
+import { startVideoAvailability, videoAvailability, stopAvailability } from "../dashboard/network-availability.js";
 import { lookup } from "node:dns/promises";
 import { isIPv4 } from "node:net";
 import { Hono } from "hono";
@@ -52,6 +53,7 @@ async function stop(id: string) {
   const session = sessions.get(id);
   if (!session) return;
   sessions.delete(id);
+  stopAvailability(id);
   session.process.kill("SIGKILL");
   await new Promise<void>((resolve) => {
     if (session.process.exitCode !== null || session.process.signalCode !== null || !session.process.pid) resolve();
@@ -87,6 +89,10 @@ cameraRoutes.post("/sessions", async (c) => {
     process.once("error", () => { session.failed = true; });
     process.once("exit", () => { session.failed = true; });
     sessions.set(id,session);
+    startVideoAvailability(id,async()=>{
+      const updatedAt=await stat(join(directory,"index.m3u8")).then(file=>file.mtimeMs,()=>null);
+      return cameraReceptionStatus(session.failed,updatedAt)==="READY";
+    });
     return c.json({data:{id,playbackPath:`/api/v1/dashboard/cameras/sessions/${id}/index.m3u8`}},201);
   } catch {
     if (directory) await rm(directory,{recursive:true,force:true});
@@ -104,14 +110,14 @@ cameraRoutes.get("/sessions/:id", async (c) => {
   const session = sessions.get(c.req.param("id"));
   if (!session) return c.json({error:{message:"영상 연결이 종료됐습니다."}},404);
   session.touched = Date.now();
-  if (session.failed) return c.json({data:{status:"FAILED",message:"카메라에 연결할 수 없습니다. 주소·인증 정보와 서버에서의 네트워크 접근을 확인하세요."}});
+  if (session.failed) return c.json({data:{status:"FAILED",availability:videoAvailability(c.req.param("id")),message:"카메라에 연결할 수 없습니다. 주소·인증 정보와 서버에서의 네트워크 접근을 확인하세요."}});
   const updatedAt = await stat(join(session.directory,"index.m3u8")).then(file => file.mtimeMs, () => null);
-  return c.json({data:{status:cameraReceptionStatus(session.failed,updatedAt),lastVideoAt:updatedAt === null ? null : new Date(updatedAt).toISOString()}});
+  return c.json({data:{status:cameraReceptionStatus(session.failed,updatedAt),availability:videoAvailability(c.req.param("id")),lastVideoAt:updatedAt === null ? null : new Date(updatedAt).toISOString()}});
 });
 
 cameraRoutes.post("/sessions/:id/stop", async (c) => {
   await stop(c.req.param("id"));
-  return c.json({data:{stopped:true}});
+  return c.json({data:{stopped:true,availability:videoAvailability(c.req.param("id"))}});
 });
 
 cameraRoutes.get("/sessions/:id/:file", async (c) => {
