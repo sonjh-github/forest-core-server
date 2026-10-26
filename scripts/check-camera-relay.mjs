@@ -41,9 +41,10 @@ try {
       const bytes=new Uint8Array(await segment.arrayBuffer());
       assert.ok(bytes.length>188);assert.equal(bytes[0],0x47);
       console.log('READY_FOR_INTERRUPTION');
-      let recovered=false;
+      let recovered=false,lastCheck;
       for(let i=0;i<160;i++) {
         const status=await (await cameraRoutes.request('/sessions/'+id)).json();
+        lastCheck=status.data;
         if(status.data.availability.recoveries.length>0) {
           const first=status.data.availability.firstReceivedAt;
           const resumed=status.data.availability.recoveries[0].receivedAt;
@@ -52,7 +53,7 @@ try {
         }
         await new Promise(resolve=>setTimeout(resolve,250));
       }
-      assert.ok(recovered,'No recovery timestamp after RTSP source interruption');
+      assert.ok(recovered,'No recovery timestamp after RTSP source interruption: '+JSON.stringify(lastCheck));
       console.log('RTSP relay reconnect and first-frame recovery timestamp verified');
     } finally {await cameraRoutes.request('/sessions/'+id+'/stop',{method:'POST'});}
     process.exit(0);
@@ -65,7 +66,7 @@ try {
       if(!paused && output.includes('READY_FOR_INTERRUPTION')) {
         paused=true;
         try {docker('pause',publisher);} catch(error) {reject(error);return;}
-        unpause=setTimeout(()=>{try {docker('unpause',publisher);} catch(error){reject(error);}},15000);
+        unpause=setTimeout(()=>{try {docker('unpause',publisher);docker('restart',publisher);} catch(error){reject(error);}},15000);
       }
     });
     runner.stderr.on('data',chunk=>{errors+=chunk.toString();});
