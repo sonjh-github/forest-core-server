@@ -14,7 +14,7 @@ try {
   docker('run','-d','--name',camera,'--network',network,'bluenviron/mediamtx:1');
   await new Promise(resolve => setTimeout(resolve,2000));
   docker('run','-d','--name',publisher,'--network',network,'--entrypoint','ffmpeg','forest-core-server:verify',
-    '-hide_banner','-loglevel','error','-re','-f','lavfi','-i','testsrc=size=320x180:rate=15',
+    '-hide_banner','-loglevel','error','-re','-f','lavfi','-i','testsrc=size=320x180:rate=30',
     '-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-g','30','-f','rtsp','-rtsp_transport','tcp',`rtsp://${camera}:8554/live`);
   await new Promise(resolve => setTimeout(resolve,2000));
   const code = `
@@ -33,6 +33,9 @@ try {
         await new Promise(resolve=>setTimeout(resolve,500));
       }
       assert.ok(ready,'HLS did not become ready');
+      const metrics=(await (await cameraRoutes.request('/sessions/'+id)).json()).data.frameMetrics;
+      assert.ok(metrics.frameCount>1);assert.ok(metrics.sampleCount>0 && metrics.sampleCount<=100);
+      assert.ok(metrics.averageIntervalMs>=0 && metrics.averageIntervalMs<100);
       const playlist=await (await cameraRoutes.request('/sessions/'+id+'/index.m3u8')).text();
       assert.match(playlist,/#EXTM3U/);
       const filename=playlist.split('\\n').find(line=>/^segment-\\d+\\.ts$/.test(line.trim())).trim();
@@ -48,6 +51,8 @@ try {
         if(status.data.availability.recoveries.length>0) {
           const first=status.data.availability.firstReceivedAt;
           const resumed=status.data.availability.recoveries[0].receivedAt;
+          assert.ok(status.data.frameMetrics.frameCount>metrics.frameCount);
+          assert.ok(Date.parse(status.data.frameMetrics.lastFrameReceivedAt)>=Date.parse(resumed));
           assert.ok(Date.parse(resumed)>Date.parse(first));
           recovered=true;break;
         }
