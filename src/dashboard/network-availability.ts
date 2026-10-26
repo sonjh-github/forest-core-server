@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { localDb } from "../local-demo/db.js";
 
 type Recovery = {receivedAt:number;frameCounter:number|null};
-type Run = {firstReceivedAt?:number|null;recoveries?:Recovery[];id:string;network:"LPWA"|"TVWS";assetId:string|null;startedAt:number;endedAt:number|null;checkedAt:number;state:"UP"|"DOWN";upMs:number;downMs:number;lastCounter:number|null;lastProgressAt:number|null};
+type Run = {receptionBasis?:"RTP";firstReceivedAt?:number|null;recoveries?:Recovery[];id:string;network:"LPWA"|"TVWS";assetId:string|null;startedAt:number;endedAt:number|null;checkedAt:number;state:"UP"|"DOWN";upMs:number;downMs:number;lastCounter:number|null;lastProgressAt:number|null};
 export class AvailabilityStore {
   constructor(private db:DatabaseSync) {
     db.exec("CREATE TABLE IF NOT EXISTS network_availability_run (id TEXT PRIMARY KEY, asset_id TEXT, network TEXT NOT NULL, ended INTEGER NOT NULL DEFAULT 0, record_json TEXT NOT NULL)");
@@ -17,7 +17,7 @@ export class AvailabilityStore {
   get(id:string) {const row=this.db.prepare("SELECT record_json FROM network_availability_run WHERE id=?").get(id);return row ? JSON.parse(String(row.record_json)) as Run : null;}
   latest(assetId:string) {const row=this.db.prepare("SELECT record_json FROM network_availability_run WHERE asset_id=? AND network='LPWA' ORDER BY rowid DESC LIMIT 1").get(assetId);return row ? JSON.parse(String(row.record_json)) as Run : null;}
   start(network:Run["network"],assetId:string|null,id:string=randomUUID(),now=Date.now(),counter:number|null=null) {
-    return this.save({id,network,assetId,startedAt:now,endedAt:null,checkedAt:now,state:"DOWN",upMs:0,downMs:0,lastCounter:counter,lastProgressAt:null,firstReceivedAt:null,recoveries:[]});
+    return this.save({...(network==="TVWS" ? {receptionBasis:"RTP" as const} : {}),id,network,assetId,startedAt:now,endedAt:null,checkedAt:now,state:"DOWN",upMs:0,downMs:0,lastCounter:counter,lastProgressAt:null,firstReceivedAt:null,recoveries:[]});
   }
   observe(id:string,up:boolean,now=Date.now(),counter?:number|null,receivedAt?:number|null) {
     const run=this.get(id);if(!run || run.endedAt!==null)return run;
@@ -40,7 +40,7 @@ export class AvailabilityStore {
 export function availabilitySummary(run:Run|null) {
   if(!run)return null;
   const totalMs=run.upMs+run.downMs;
-  return {id:run.id,network:run.network,assetId:run.assetId,startedAt:new Date(run.startedAt).toISOString(),endedAt:run.endedAt===null ? null : new Date(run.endedAt).toISOString(),checkedAt:new Date(run.checkedAt).toISOString(),state:run.state,firstReceivedAt:run.firstReceivedAt==null ? null : new Date(run.firstReceivedAt).toISOString(),recoveries:(run.recoveries ?? []).map(item=>({receivedAt:new Date(item.receivedAt).toISOString(),frameCounter:item.frameCounter})),totalMs,upMs:run.upMs,downMs:run.downMs,availabilityPercent:totalMs>0 ? run.upMs/totalMs*100 : null};
+  return {receptionBasis:run.receptionBasis ?? null,id:run.id,network:run.network,assetId:run.assetId,startedAt:new Date(run.startedAt).toISOString(),endedAt:run.endedAt===null ? null : new Date(run.endedAt).toISOString(),checkedAt:new Date(run.checkedAt).toISOString(),state:run.state,firstReceivedAt:run.firstReceivedAt==null ? null : new Date(run.firstReceivedAt).toISOString(),recoveries:(run.recoveries ?? []).map(item=>({receivedAt:new Date(item.receivedAt).toISOString(),frameCounter:item.frameCounter})),totalMs,upMs:run.upMs,downMs:run.downMs,availabilityPercent:totalMs>0 ? run.upMs/totalMs*100 : null};
 }
 let store:AvailabilityStore|undefined;
 function measurements() {return store ??= new AvailabilityStore(localDb());}
