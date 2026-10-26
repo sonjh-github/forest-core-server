@@ -1,7 +1,8 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 const suffix = String(process.pid);
 const network = `camera-test-${suffix}`;
 const camera = `camera-fixture-${suffix}`;
+const observer = `camera-observer-${suffix}`;
 const publisher = `camera-publisher-${suffix}`;
 function docker(...args) {
   const result = spawnSync('docker', args, {encoding:'utf8', timeout:120_000});
@@ -39,12 +40,39 @@ try {
       assert.equal(segment.status,200);
       const bytes=new Uint8Array(await segment.arrayBuffer());
       assert.ok(bytes.length>188);assert.equal(bytes[0],0x47);
-      console.log('RTSP -> HLS playlist and MPEG-TS segment verified');
+      console.log('READY_FOR_INTERRUPTION');
+      let recovered=false;
+      for(let i=0;i<160;i++) {
+        const status=await (await cameraRoutes.request('/sessions/'+id)).json();
+        if(status.data.availability.recoveries.length>0) {
+          const first=status.data.availability.firstReceivedAt;
+          const resumed=status.data.availability.recoveries[0].receivedAt;
+          assert.ok(Date.parse(resumed)>Date.parse(first));
+          recovered=true;break;
+        }
+        await new Promise(resolve=>setTimeout(resolve,250));
+      }
+      assert.ok(recovered,'No recovery timestamp after RTSP source interruption');
+      console.log('RTSP relay reconnect and first-frame recovery timestamp verified');
     } finally {await cameraRoutes.request('/sessions/'+id+'/stop',{method:'POST'});}
     process.exit(0);
   `;
-  console.log(docker('run','--rm','--network',network,'-e','CAMERA_RTSP_ALLOW_PRIVATE=true','-e','DB_MODE=sqlite','-e','SQLITE_PATH=/tmp/camera-availability.sqlite','--entrypoint','node','forest-core-server:verify','--input-type=module','-e',code));
+  await new Promise((resolve,reject)=>{
+    let output='',errors='',paused=false,unpause;
+    const runner=spawn('docker',['run','--rm','--name',observer,'--network',network,'-e','CAMERA_RTSP_ALLOW_PRIVATE=true','-e','DB_MODE=sqlite','-e','SQLITE_PATH=/tmp/camera-availability.sqlite','--entrypoint','node','forest-core-server:verify','--input-type=module','-e',code]);
+    runner.stdout.on('data',chunk=>{
+      output+=chunk.toString();
+      if(!paused && output.includes('READY_FOR_INTERRUPTION')) {
+        paused=true;
+        try {docker('pause',publisher);} catch(error) {reject(error);return;}
+        unpause=setTimeout(()=>{try {docker('unpause',publisher);} catch(error){reject(error);}},15000);
+      }
+    });
+    runner.stderr.on('data',chunk=>{errors+=chunk.toString();});
+    runner.once('error',reject);
+    runner.once('exit',status=>{clearTimeout(unpause);if(status===0){console.log(output.trim());resolve();}else reject(new Error(`Relay recovery check failed: ${errors}`));});
+  });
 } finally {
-  spawnSync('docker',['rm','-f',publisher,camera],{stdio:'ignore'});
+  spawnSync('docker',['rm','-f',observer,publisher,camera],{stdio:'ignore'});
   spawnSync('docker',['network','rm',network],{stdio:'ignore'});
 }

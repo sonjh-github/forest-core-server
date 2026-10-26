@@ -50,3 +50,26 @@ test("LPWA 측정은 실재 등록 단말만 시작하고 중복 시작·중지�
   const loaded=await (await availabilityRoutes.request('/lpwa/lpwa-asset')).json() as any;
   assert.deepEqual(loaded.data,ended.data);
 });
+
+
+test("초기 수신은 복구 이력과 분리하고 LPWA 복구는 점검 시각 대신 실제 수신 시각을 저장한다",()=>{
+  const db=new DatabaseSync(":memory:");const store=new AvailabilityStore(db);
+  store.start("LPWA","rtk","recovery",10000,10);
+  store.observe("recovery",true,12500,11,12000);
+  assert.equal(store.get("recovery")?.firstReceivedAt,12000);
+  assert.deepEqual(store.get("recovery")?.recoveries,[]);
+  store.observe("recovery",true,18500,11,18000);
+  store.observe("recovery",true,20500,12,20123);
+  store.observe("recovery",true,21500,12,21000);
+  assert.deepEqual(store.get("recovery")?.recoveries,[{receivedAt:20123,frameCounter:12}]);
+  const restored=availabilitySummary(new AvailabilityStore(db).get("recovery"))!;
+  assert.deepEqual(restored.recoveries,[{receivedAt:new Date(20123).toISOString(),frameCounter:12}]);
+  store.start("TVWS",null,"video-recovery",10000);
+  store.observe("video-recovery",true,11000,undefined,11000);
+  store.observe("video-recovery",false,12000);
+  store.observe("video-recovery",true,13001,undefined,13001);
+  store.observe("video-recovery",true,14000);
+  assert.equal(store.get("video-recovery")?.firstReceivedAt,11000);
+  assert.deepEqual(store.get("video-recovery")?.recoveries,[{receivedAt:13001,frameCounter:null}]);
+  db.close();
+});

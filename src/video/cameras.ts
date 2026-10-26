@@ -1,4 +1,4 @@
-import { startVideoAvailability, videoAvailability, stopAvailability } from "../dashboard/network-availability.js";
+import { startVideoAvailability, videoAvailability, stopAvailability, noteVideoReception, noteVideoInterruption } from "../dashboard/network-availability.js";
 import { lookup } from "node:dns/promises";
 import { isIPv4 } from "node:net";
 import { Hono } from "hono";
@@ -8,7 +8,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-type Session = { directory: string; process: ChildProcess; touched: number; failed: boolean };
+type Session = { directory:string;process:ChildProcess|null;touched:number;failed:boolean;lastVideoAt:number|null;hasFrame:boolean;retryTimer?:ReturnType<typeof setTimeout> };
 const sessions = new Map<string, Session>();
 let starting = 0;
 export const cameraRoutes = new Hono();
@@ -54,10 +54,12 @@ async function stop(id: string) {
   if (!session) return;
   sessions.delete(id);
   stopAvailability(id);
-  session.process.kill("SIGKILL");
+  if(session.retryTimer)clearTimeout(session.retryTimer);
+  const process=session.process;
+  process?.kill("SIGKILL");
   await new Promise<void>((resolve) => {
-    if (session.process.exitCode !== null || session.process.signalCode !== null || !session.process.pid) resolve();
-    else session.process.once("close", () => resolve());
+    if (!process || process.exitCode !== null || process.signalCode !== null || !process.pid) resolve();
+    else process.once("close", () => resolve());
   });
   await rm(session.directory, { recursive: true, force: true });
 }
@@ -77,22 +79,45 @@ cameraRoutes.post("/sessions", async (c) => {
     try { target = await cameraTarget(body.uri); }
     catch { return c.json({error:{message:"카메라 주소를 확인할 수 없거나 허용되지 않은 내부망 주소입니다. 사설망 카메라는 운영 서버의 허용 주소 설정이 필요합니다."}},400); }
     directory = await mkdtemp(join(tmpdir(), "forest-camera-"));
-    const process = spawn("ffmpeg", ["-hide_banner","-loglevel","error","-nostdin",
-      "-protocol_whitelist","rtsp,rtp,tcp,udp","-rtsp_transport","tcp","-timeout","10000000","-i",target,
-      "-map","0:v:0","-an","-c:v","libx264","-preset","ultrafast","-tune","zerolatency",
-      "-threads","2","-pix_fmt","yuv420p","-r","15","-g","30",
-      "-f","hls","-hls_time","2","-hls_list_size","5","-hls_flags","delete_segments+temp_file",
-      "-hls_segment_filename",join(directory,"segment-%d.ts"),join(directory,"index.m3u8")],
-      {stdio:"ignore", windowsHide:true});
     const id = randomUUID();
-    const session: Session = {directory,process,touched:Date.now(),failed:false};
-    process.once("error", () => { session.failed = true; });
-    process.once("exit", () => { session.failed = true; });
+    const session:Session={directory,process:null,touched:Date.now(),failed:false,lastVideoAt:null,hasFrame:false};
     sessions.set(id,session);
-    startVideoAvailability(id,async()=>{
-      const updatedAt=await stat(join(directory,"index.m3u8")).then(file=>file.mtimeMs,()=>null);
-      return cameraReceptionStatus(session.failed,updatedAt)==="READY";
-    });
+    startVideoAvailability(id,async()=>session.hasFrame && cameraReceptionStatus(session.failed,session.lastVideoAt)==="READY");
+    const launch = () => {
+      if(sessions.get(id)!==session)return;
+      session.failed=false;session.hasFrame=false;session.retryTimer=undefined;
+      const process=spawn("ffmpeg",["-hide_banner","-loglevel","error","-nostdin",
+        "-stats_period","0.1","-progress","pipe:1",
+        "-protocol_whitelist","rtsp,rtp,tcp,udp","-rtsp_transport","tcp","-timeout","10000000","-i",target,
+        "-map","0:v:0","-an","-c:v","libx264","-preset","ultrafast","-tune","zerolatency",
+        "-threads","2","-pix_fmt","yuv420p","-r","15","-g","30",
+        "-f","hls","-hls_time","2","-hls_list_size","5","-hls_start_number_source","epoch",
+        "-hls_flags","delete_segments+temp_file+append_list+discont_start",
+        "-hls_segment_filename",join(directory,"segment-%d.ts"),join(directory,"index.m3u8")],
+        {stdio:["ignore","pipe","ignore"],windowsHide:true});
+      session.process=process;
+      let buffer="",lastFrame=0;
+      process.stdout?.on("data",(chunk:Buffer)=>{
+        if(sessions.get(id)!==session || session.process!==process || session.failed)return;
+        buffer+=chunk.toString();const lines=buffer.split(/\r?\n/);buffer=lines.pop() ?? "";
+        for(const line of lines) {
+          const match=/^frame=(\d+)$/.exec(line.trim());
+          if(!match || Number(match[1])<=lastFrame)continue;
+          lastFrame=Number(match[1]);const now=Date.now();
+          const gap=session.lastVideoAt!==null && now-session.lastVideoAt>=10000;
+          if(gap)noteVideoInterruption(id,now);
+          if(!session.hasFrame || gap)noteVideoReception(id,now);
+          session.hasFrame=true;session.lastVideoAt=now;
+        }
+      });
+      const retry=()=>{
+        if(sessions.get(id)!==session || session.process!==process || session.retryTimer)return;
+        session.failed=true;session.hasFrame=false;noteVideoInterruption(id);
+        session.retryTimer=setTimeout(launch,1000);
+      };
+      process.once("error",retry);process.once("exit",retry);
+    };
+    launch();
     return c.json({data:{id,playbackPath:`/api/v1/dashboard/cameras/sessions/${id}/index.m3u8`}},201);
   } catch {
     if (directory) await rm(directory,{recursive:true,force:true});
@@ -112,7 +137,7 @@ cameraRoutes.get("/sessions/:id", async (c) => {
   session.touched = Date.now();
   if (session.failed) return c.json({data:{status:"FAILED",availability:videoAvailability(c.req.param("id")),message:"카메라에 연결할 수 없습니다. 주소·인증 정보와 서버에서의 네트워크 접근을 확인하세요."}});
   const updatedAt = await stat(join(session.directory,"index.m3u8")).then(file => file.mtimeMs, () => null);
-  return c.json({data:{status:cameraReceptionStatus(session.failed,updatedAt),availability:videoAvailability(c.req.param("id")),lastVideoAt:updatedAt === null ? null : new Date(updatedAt).toISOString()}});
+  return c.json({data:{status:cameraReceptionStatus(session.failed,session.hasFrame ? updatedAt : null),availability:videoAvailability(c.req.param("id")),lastVideoAt:updatedAt === null ? null : new Date(updatedAt).toISOString()}});
 });
 
 cameraRoutes.post("/sessions/:id/stop", async (c) => {
