@@ -27,6 +27,7 @@ try {
       for(let i=0;i<40;i++) {
         const status=await (await cameraRoutes.request('/sessions/'+id)).json();
         assert.notEqual(status.data.status,'FAILED','RTSP relay failed');
+        assert.equal(status.data.availability.network,'TVWS');
         if(status.data.status==='READY'){ready=true;break;}
         await new Promise(resolve=>setTimeout(resolve,500));
       }
@@ -42,7 +43,7 @@ try {
     } finally {await cameraRoutes.request('/sessions/'+id+'/stop',{method:'POST'});}
     process.exit(0);
   `;
-  console.log(docker('run','--rm','--network',network,'-e','CAMERA_RTSP_ALLOW_PRIVATE=true','--entrypoint','node','forest-core-server:verify','--input-type=module','-e',code));
+  console.log(docker('run','--rm','--network',network,'-e','CAMERA_RTSP_ALLOW_PRIVATE=true','-e','DB_MODE=sqlite','-e','SQLITE_PATH=/tmp/camera-availability.sqlite','--entrypoint','node','forest-core-server:verify','--input-type=module','-e',code));
 } finally {
   spawnSync('docker',['rm','-f',publisher,camera],{stdio:'ignore'});
   spawnSync('docker',['network','rm',network],{stdio:'ignore'});
