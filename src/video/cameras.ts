@@ -3,7 +3,7 @@ import { isIPv4 } from "node:net";
 import { Hono } from "hono";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, access } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -94,13 +94,19 @@ cameraRoutes.post("/sessions", async (c) => {
   } finally { starting--; }
 });
 
+export function cameraReceptionStatus(failed: boolean, updatedAt: number | null, now = Date.now()) {
+  if (failed) return "FAILED";
+  if (updatedAt === null) return "CONNECTING";
+  return now - updatedAt <= 10_000 ? "READY" : "STALLED";
+}
+
 cameraRoutes.get("/sessions/:id", async (c) => {
   const session = sessions.get(c.req.param("id"));
   if (!session) return c.json({error:{message:"영상 연결이 종료됐습니다."}},404);
   session.touched = Date.now();
   if (session.failed) return c.json({data:{status:"FAILED",message:"카메라에 연결할 수 없습니다. 주소·인증 정보와 서버에서의 네트워크 접근을 확인하세요."}});
-  const ready = await access(join(session.directory,"index.m3u8")).then(() => true, () => false);
-  return c.json({data:{status:ready ? "READY" : "CONNECTING"}});
+  const updatedAt = await stat(join(session.directory,"index.m3u8")).then(file => file.mtimeMs, () => null);
+  return c.json({data:{status:cameraReceptionStatus(session.failed,updatedAt),lastVideoAt:updatedAt === null ? null : new Date(updatedAt).toISOString()}});
 });
 
 cameraRoutes.post("/sessions/:id/stop", async (c) => {
