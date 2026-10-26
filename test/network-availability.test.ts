@@ -73,3 +73,16 @@ test("초기 수신은 복구 이력과 분리하고 LPWA 복구는 점검 시�
   assert.deepEqual(store.get("video-recovery")?.recoveries,[{receivedAt:13001,frameCounter:null}]);
   db.close();
 });
+
+test("LPWA recovery monitoring starts automatically for registered terminals without a screen action",async()=>{
+ const {startLpwaRecoveryMonitoring,availabilityRoutes}=await import("../src/dashboard/network-availability.js");
+ const cancel=startLpwaRecoveryMonitoring();
+ try {
+  const first=await (await availabilityRoutes.request('/lpwa/lpwa-asset')).json() as any;
+  assert.ok(first.data);assert.equal(first.data.endedAt,null);
+  const cancelAgain=startLpwaRecoveryMonitoring();cancelAgain();
+  const second=await (await availabilityRoutes.request('/lpwa/lpwa-asset')).json() as any;
+  assert.equal(first.data.id,second.data.id);
+  assert.equal((await (await availabilityRoutes.request('/lpwa/missing')).json() as any).data,null);
+ } finally {cancel();}
+});

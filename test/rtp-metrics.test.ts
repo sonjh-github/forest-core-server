@@ -10,7 +10,7 @@ test("actual sequence window counts gaps, duplicates, late arrivals and wrap",()
  m.record(packet(14),1101,1101,90000);m.record(packet(14),1102,1102,90000);
  s=m.snapshot(7000);assert.equal(s.receivedCount,99);assert.equal(s.duplicateCount,1);assert.equal(s.sequenceSilenceMs,5901);
  m.beginConnection();assert.equal(m.snapshot().expectedCount,0);assert.equal(m.snapshot().packetCount,100);
- m.record(packet(500,2),8000,8000,90000);assert.equal(m.snapshot().expectedCount,1);
+ m.record(packet(500,2),8000,8000,90000);assert.equal(m.snapshot(8000).expectedCount,1);
 });
 test("large jumps require consecutive confirmation; SSRC changes reset window",()=>{
  const m=new RtpReceptionMetrics();m.record(packet(100),1,1,90000);m.record(packet(5000),2,2,90000);assert.equal(m.snapshot(2).sequenceStatus,"RESET_PENDING");
@@ -35,3 +35,14 @@ test("fragmented RTSP/SDP and TCP interleaving retain original RTP headers",()=>
  const s=m.snapshot(1240);assert.equal(s.available,true);assert.equal(s.packetCount,1);assert.equal(s.toSequence,7);assert.equal(s.clockRate,90000);assert.equal(s.rtcpSenderReports,1);assert.deepEqual(arrivals,[1234]);
 });
 test("invalid observation stream fails metrics closed",()=>{const m=new RtpReceptionMetrics();const tap=new RtpTapReader(m,()=>{});tap.push(Buffer.alloc(28));assert.equal(m.snapshot().available,false);assert.ok(m.error);});
+
+test("RTP uses a rolling 200 second window rather than 100 packets",()=>{
+ const m=new RtpReceptionMetrics();
+ for(let i=0;i<=250;i++)if(i!==120)m.record(packet(i),1000+i*1000,i*1000,90000);
+ const s=m.snapshot(251000);
+ assert.equal(s.windowMs,200000);assert.equal(s.observedMs,200000);assert.equal(s.sequenceStatus,"READY");
+ assert.equal(s.fromSequence,50);assert.equal(s.toSequence,250);assert.equal(s.expectedCount,201);assert.equal(s.receivedCount,200);assert.equal(s.missingCount,1);assert.deepEqual(s.missingSequences,[120]);assert.equal(s.maxIntervalMs,2000);
+ assert.equal(m.snapshot(452000).expectedCount,0);assert.equal(m.snapshot(452000).sampleCount,0);
+ const cold=new RtpReceptionMetrics();for(let i=0;i<200;i++)cold.record(packet(i),1000+i,i,90000);
+ assert.equal(cold.snapshot(1200).sequenceStatus,"WAITING");
+});

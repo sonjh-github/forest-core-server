@@ -37,8 +37,8 @@ try {
       assert.ok(metrics.frameCount>1);assert.ok(metrics.sampleCount>0 && metrics.sampleCount<=100);
       assert.ok(metrics.averageIntervalMs>=0 && metrics.averageIntervalMs<100);
       let rtp;
-      for(let i=0;i<40;i++){rtp=(await (await cameraRoutes.request('/sessions/'+id)).json()).data.rtpMetrics;if(rtp.sequenceStatus==='READY')break;await new Promise(resolve=>setTimeout(resolve,250));}
-      assert.equal(rtp.available,true,rtp.error);assert.ok(rtp.packetCount>1,JSON.stringify(rtp));assert.equal(rtp.sequenceStatus,'READY');assert.equal(rtp.expectedCount,100);assert.equal(rtp.receivedCount,100);assert.equal(rtp.successPercent,100);
+      for(let i=0;i<40;i++){rtp=(await (await cameraRoutes.request('/sessions/'+id)).json()).data.rtpMetrics;if(rtp.expectedCount>=100)break;await new Promise(resolve=>setTimeout(resolve,250));}
+      assert.equal(rtp.available,true,rtp.error);assert.ok(rtp.packetCount>1,JSON.stringify(rtp));assert.equal(rtp.windowMs,200000);assert.equal(rtp.sequenceStatus,'WAITING');assert.ok(rtp.expectedCount>=100);assert.equal(rtp.receivedCount,rtp.expectedCount);assert.equal(rtp.successPercent,100);
       const playlist=await (await cameraRoutes.request('/sessions/'+id+'/index.m3u8')).text();
       assert.match(playlist,/#EXTM3U/);
       const filename=playlist.split('\\n').find(line=>/^segment-\\d+\\.ts$/.test(line.trim())).trim();

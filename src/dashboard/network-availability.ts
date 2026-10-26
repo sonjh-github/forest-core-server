@@ -16,8 +16,8 @@ export class AvailabilityStore {
   private save(run:Run) {this.db.prepare("INSERT OR REPLACE INTO network_availability_run VALUES(?,?,?,?,?)").run(run.id,run.assetId,run.network,run.endedAt===null ? 0 : 1,JSON.stringify(run));return run;}
   get(id:string) {const row=this.db.prepare("SELECT record_json FROM network_availability_run WHERE id=?").get(id);return row ? JSON.parse(String(row.record_json)) as Run : null;}
   latest(assetId:string) {const row=this.db.prepare("SELECT record_json FROM network_availability_run WHERE asset_id=? AND network='LPWA' ORDER BY rowid DESC LIMIT 1").get(assetId);return row ? JSON.parse(String(row.record_json)) as Run : null;}
-  start(network:Run["network"],assetId:string|null,id:string=randomUUID(),now=Date.now(),counter:number|null=null) {
-    return this.save({...(network==="TVWS" ? {receptionBasis:"RTP" as const} : {}),id,network,assetId,startedAt:now,endedAt:null,checkedAt:now,state:"DOWN",upMs:0,downMs:0,lastCounter:counter,lastProgressAt:null,firstReceivedAt:null,recoveries:[]});
+  start(network:Run["network"],assetId:string|null,id:string=randomUUID(),now=Date.now(),counter:number|null=null,recoveries:Recovery[]=[]) {
+    return this.save({...(network==="TVWS" ? {receptionBasis:"RTP" as const} : {}),id,network,assetId,startedAt:now,endedAt:null,checkedAt:now,state:"DOWN",upMs:0,downMs:0,lastCounter:counter,lastProgressAt:null,firstReceivedAt:null,recoveries});
   }
   observe(id:string,up:boolean,now=Date.now(),counter?:number|null,receivedAt?:number|null) {
     const run=this.get(id);if(!run || run.endedAt!==null)return run;
@@ -66,6 +66,23 @@ function lpwaPacket(assetId:string,since?:number,baseline?:number|null) {
   const up=Array.isArray(payload?.activePath) && payload.activePath.some((hop:{medium?:string;status?:string})=>hop.medium==="LPWA" && hop.status==="ACTIVE");
   return {up,counter:Number.isSafeInteger(counter) && counter>=0 ? counter as number : null,receivedAt:Date.parse(String(row.received_at))};
 }
+function ensureLpwaMonitoring(assetId:string) {
+  const previous=measurements().latest(assetId);
+  if(previous?.endedAt===null && monitors.has(previous.id))return previous;
+  const packet=lpwaPacket(assetId);
+  const run=measurements().start("LPWA",assetId,undefined,Date.now(),packet.counter,previous?.recoveries ?? []);
+  monitors.set(run.id,async()=>{const current=measurements().get(run.id);const sample=current?.state==="DOWN" ? lpwaPacket(assetId,current.checkedAt,current.lastCounter) : lpwaPacket(assetId);measurements().observe(run.id,sample.up,Date.now(),sample.counter,sample.receivedAt);});
+  return run;
+}
+export function startLpwaRecoveryMonitoring() {
+  const discover=()=>{
+    const assets=localDb().prepare("SELECT a.asset_id FROM asset a JOIN asset_type t ON t.asset_type_id=a.asset_type_id WHERE t.name='RTK_TERMINAL' AND a.status NOT IN ('RETIRED','DISPOSED')").all();
+    for(const asset of assets)ensureLpwaMonitoring(String(asset.asset_id));
+  };
+  discover();
+  const discovery=setInterval(discover,10000);discovery.unref();
+  return ()=>clearInterval(discovery);
+}
 export const availabilityRoutes=new Hono();
 availabilityRoutes.get("/lpwa/:assetId",c=>c.json({data:availabilitySummary(measurements().latest(c.req.param("assetId")))}));
 availabilityRoutes.post("/lpwa/:assetId/start",c=>{
@@ -74,9 +91,7 @@ availabilityRoutes.post("/lpwa/:assetId/start",c=>{
   if(!asset)return c.json({error:{message:"측정 가능한 RTK 단말을 찾을 수 없습니다."}},404);
   const previous=measurements().latest(assetId);
   if(previous?.endedAt===null)return c.json({data:availabilitySummary(previous)});
-  const packet=lpwaPacket(assetId);
-  const run=measurements().start("LPWA",assetId,undefined,Date.now(),packet.counter);
-  monitors.set(run.id,async()=>{const current=measurements().get(run.id);const sample=current?.state==="DOWN" ? lpwaPacket(assetId,current.checkedAt,current.lastCounter) : lpwaPacket(assetId);measurements().observe(run.id,sample.up,Date.now(),sample.counter,sample.receivedAt);});
+  const run=ensureLpwaMonitoring(assetId);
   return c.json({data:availabilitySummary(run)},201);
 });
 availabilityRoutes.post("/lpwa/:assetId/stop",c=>{
