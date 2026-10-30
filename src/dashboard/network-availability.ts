@@ -46,10 +46,18 @@ let store:AvailabilityStore|undefined;
 function measurements() {return store ??= new AvailabilityStore(localDb());}
 const monitors=new Map<string,()=>Promise<void>>();
 let ticking=false;
+let monitorCursor=0;
 const timer=setInterval(async()=>{
   if(ticking)return;ticking=true;
-  try {await Promise.allSettled([...monitors.values()].map(check=>check()));} finally {ticking=false;}
-},1000);timer.unref();
+  try {
+    const checks=[...monitors.values()];
+    if(checks.length) {
+      const check=checks[monitorCursor%checks.length]!;
+      monitorCursor=(monitorCursor+1)%checks.length;
+      await Promise.resolve(check()).catch(()=>undefined);
+    }
+  } finally {ticking=false;}
+},250);timer.unref();
 export function startVideoAvailability(id:string,check:()=>Promise<boolean>) {
   measurements().start("TVWS",null,id);
   monitors.set(id,async()=>{const up=await check();measurements().observe(id,up);});
