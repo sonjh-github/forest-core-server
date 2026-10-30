@@ -1562,15 +1562,23 @@ export function listLocalVendorMessages(
 
 
 export function latestLocalSlenoPositions(): VendorIntegrationMessageRow[] {
-  const rows = localDb().prepare(`
-    SELECT *
-    FROM vendor_message
-    WHERE vendor_code = 'JININFRA'
+  const db = localDb();
+  const assets = db.prepare(`
+    SELECT asset_id FROM asset WHERE vendor_code = 'JININFRA'
+  `).all() as unknown as Row[];
+  const latest = db.prepare(`
+    SELECT * FROM vendor_message INDEXED BY idx_vendor_message_device_received
+    WHERE source_device_id = ?
+      AND vendor_code = 'JININFRA'
       AND payload_type = 'RTK_POSITION'
       AND status = 'PERSISTED'
-    ORDER BY occurred_at DESC
-    LIMIT 200
-  `).all() as unknown as Row[];
+    ORDER BY received_at DESC
+    LIMIT 1
+  `);
+  const rows = assets.flatMap((asset) => {
+    const row = latest.get(String(asset.asset_id)) as unknown as Row | undefined;
+    return row ? [row] : [];
+  });
   return rows.map(row => ({
     request_id: String(row.request_id), event_external_id: optionalText(row.event_external_id),
     payload_type: optionalText(row.payload_type), source_device_id: optionalText(row.source_device_id),
