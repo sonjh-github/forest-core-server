@@ -205,6 +205,23 @@ function initSchema(
       payload_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS vendor_request_log (
+      log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      logged_at TEXT NOT NULL,
+      method TEXT NOT NULL,
+      url TEXT NOT NULL,
+      status_code INTEGER NOT NULL,
+      category TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      user_agent TEXT,
+      request_body_json TEXT,
+      response_body_json TEXT,
+      received_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vendor_request_log_received
+    ON vendor_request_log(received_at DESC, log_id DESC);
+
     CREATE INDEX IF NOT EXISTS
       idx_vendor_message_device_received
     ON vendor_message(
@@ -215,6 +232,9 @@ function initSchema(
     CREATE INDEX IF NOT EXISTS idx_vendor_message_vendor_occurred
     ON vendor_message(vendor_code, occurred_at DESC)
     WHERE status = 'PERSISTED';
+
+    CREATE INDEX IF NOT EXISTS idx_vendor_message_vendor_received
+    ON vendor_message(vendor_code, received_at DESC);
 
     CREATE INDEX IF NOT EXISTS idx_vendor_message_vendor_payload_occurred
     ON vendor_message(vendor_code, payload_type, occurred_at DESC)
@@ -373,22 +393,14 @@ export function localDbHealth():
 export function findLocalVendorHealthState(
   vendor: ExternalVendor,
 ) {
-  const mappings = localDb()
+  const db = localDb();
+  const mappingRows = db
     .prepare(`
       SELECT
         vendor_device_id,
         asset_id,
         device_type,
-        COALESCE(mapping_status, 'ACTIVE') AS status,
-        (
-          SELECT MAX(message.received_at)
-          FROM vendor_message AS message
-          WHERE message.vendor_code = asset.vendor_code
-            AND (
-              message.source_device_id = asset.asset_id
-              OR message.source_device_id = asset.vendor_device_id
-            )
-        ) AS last_seen_at
+        COALESCE(mapping_status, 'ACTIVE') AS status
       FROM asset
       WHERE vendor_code = ?
         AND vendor_device_id IS NOT NULL
@@ -397,7 +409,30 @@ export function findLocalVendorHealthState(
     `)
     .all(vendor) as unknown as Row[];
 
-  const latestMessage = localDb()
+  const lastSeenStatement = db.prepare(`
+    SELECT received_at
+    FROM vendor_message
+    WHERE source_device_id = ?
+      AND vendor_code = ?
+    ORDER BY received_at DESC
+    LIMIT 1
+  `);
+
+  const mappings = mappingRows.map((row) => {
+    const lastSeen = lastSeenStatement.get(String(row.asset_id), vendor) as
+      | Row
+      | undefined;
+
+    return {
+      vendor_device_id: String(row.vendor_device_id),
+      asset_id: String(row.asset_id),
+      device_type: optionalText(row.device_type),
+      status: String(row.status),
+      last_seen_at: lastSeen ? String(lastSeen.received_at) : null,
+    };
+  });
+
+  const latestMessage = db
     .prepare(`
       SELECT received_at, status
       FROM vendor_message
@@ -408,13 +443,7 @@ export function findLocalVendorHealthState(
     .get(vendor) as unknown as Row | undefined;
 
   return {
-    mappings: mappings.map((row) => ({
-      vendor_device_id: String(row.vendor_device_id),
-      asset_id: String(row.asset_id),
-      device_type: optionalText(row.device_type),
-      status: String(row.status),
-      last_seen_at: optionalText(row.last_seen_at),
-    })),
+    mappings,
     latestMessage: latestMessage
       ? {
           received_at: String(latestMessage.received_at),
@@ -422,6 +451,65 @@ export function findLocalVendorHealthState(
         }
       : null,
   };
+}
+
+export type LocalVendorRequestLogInput = {
+  timestamp: string;
+  method: string;
+  url: string;
+  status: number;
+  category: string;
+  durationMs: number;
+  userAgent: string | null;
+  requestBody: unknown;
+  responseBody: unknown;
+};
+
+export function insertLocalVendorRequestLog(input: LocalVendorRequestLogInput) {
+  const receivedAt = new Date().toISOString();
+  const result = localDb().prepare(`
+    INSERT INTO vendor_request_log (
+      logged_at, method, url, status_code, category, duration_ms,
+      user_agent, request_body_json, response_body_json, received_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    input.timestamp,
+    input.method,
+    input.url,
+    input.status,
+    input.category,
+    input.durationMs,
+    input.userAgent,
+    JSON.stringify(input.requestBody ?? null),
+    JSON.stringify(input.responseBody ?? null),
+    receivedAt,
+  );
+
+  return { logId: Number(result.lastInsertRowid), receivedAt };
+}
+
+export function listLocalVendorRequestLogs(limit = 100) {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
+  const rows = localDb().prepare(`
+    SELECT *
+    FROM vendor_request_log
+    ORDER BY received_at DESC, log_id DESC
+    LIMIT ?
+  `).all(safeLimit) as unknown as Row[];
+
+  return rows.map((row) => ({
+    log_id: Number(row.log_id),
+    logged_at: String(row.logged_at),
+    method: String(row.method),
+    url: String(row.url),
+    status_code: Number(row.status_code),
+    category: String(row.category),
+    duration_ms: Number(row.duration_ms),
+    user_agent: optionalText(row.user_agent),
+    request_body: row.request_body_json == null ? null : JSON.parse(String(row.request_body_json)),
+    response_body: row.response_body_json == null ? null : JSON.parse(String(row.response_body_json)),
+    received_at: String(row.received_at),
+  }));
 }
 
 export function listAssetTypes() {

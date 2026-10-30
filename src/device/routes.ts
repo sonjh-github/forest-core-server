@@ -6,6 +6,8 @@ import { collectDeviceIds, type ExternalVendor, type InvokeRequest, type Mapping
 import { readVendorHealth } from "./health.js";
 import { invokeVendor } from "./integration.js";
 import { rememberLiveSleno } from "./live-sleno.js";
+import { insertLocalVendorRequestLog } from "../local-demo/db.js";
+import { config } from "../config.js";
 
 export const deviceRoutes = new Hono();
 
@@ -92,4 +94,38 @@ deviceRoutes.get("/vendors/:vendor/health", async (c) => {
   const vendor = c.req.param("vendor").toUpperCase();
   if (!validVendor(vendor)) return c.json({ error: { code: "INVALID_VENDOR", message: "지원하지 않는 업체입니다." } }, 400);
   return c.json({ data: await readVendorHealth(vendor) });
+});
+
+deviceRoutes.post("/vendor-request-logs", async (c) => {
+  if (config.dbMode !== "sqlite") {
+    return c.json({ error: { code: "UNSUPPORTED_DB_MODE", message: "SQLite 운영 모드에서만 지원합니다." } }, 503);
+  }
+
+  const body = await c.req.json<Record<string, unknown>>();
+  const timestamp = typeof body.timestamp === "string" ? body.timestamp.trim() : "";
+  const method = typeof body.method === "string" ? body.method.trim().toUpperCase() : "";
+  const url = typeof body.url === "string" ? body.url.trim() : "";
+  const status = Number(body.status);
+  const category = typeof body["구분"] === "string" ? String(body["구분"]).trim() : "";
+  const durationMs = Number(body.durationMs);
+  const userAgent = typeof body["user-agent"] === "string" ? String(body["user-agent"]) : null;
+
+  if (!timestamp || !method || !url || !Number.isInteger(status) || status < 100 || status > 599 ||
+      !["REGISTER", "VALIDATE_ONLY", "DELIVER", "HEALTH", "OTHER"].includes(category) ||
+      !Number.isFinite(durationMs) || durationMs < 0) {
+    return c.json({ error: { code: "INVALID_REQUEST", message: "Vendor 요청 로그 형식이 올바르지 않습니다." } }, 400);
+  }
+
+  const data = insertLocalVendorRequestLog({
+    timestamp,
+    method,
+    url,
+    status,
+    category,
+    durationMs: Math.round(durationMs),
+    userAgent,
+    requestBody: body["request.body"] ?? null,
+    responseBody: body["response.body"] ?? null,
+  });
+  return c.json({ data }, 201);
 });

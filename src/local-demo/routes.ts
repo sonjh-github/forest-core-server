@@ -23,6 +23,7 @@ import {
 import {
   LocalDbError,
   assetLogs,
+  listLocalVendorRequestLogs,
   createAsset,
   disasterAssets,
   findAsset,
@@ -181,6 +182,14 @@ localDashboardRoutes.get(
     return c.json({
       data: asset,
     });
+  },
+);
+
+localDashboardRoutes.get(
+  "/vendor-request-logs",
+  (c) => {
+    const limit = limitValue(c.req.query("limit"), 100, 500);
+    return c.json({ data: listLocalVendorRequestLogs(limit) });
   },
 );
 
