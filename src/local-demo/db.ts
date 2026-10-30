@@ -233,9 +233,6 @@ function initSchema(
     ON vendor_message(vendor_code, occurred_at DESC)
     WHERE status = 'PERSISTED';
 
-    CREATE INDEX IF NOT EXISTS idx_vendor_message_vendor_received
-    ON vendor_message(vendor_code, received_at DESC);
-
     CREATE INDEX IF NOT EXISTS idx_vendor_message_vendor_payload_occurred
     ON vendor_message(vendor_code, payload_type, occurred_at DESC)
     WHERE status = 'PERSISTED';
@@ -437,7 +434,7 @@ export function findLocalVendorHealthState(
       SELECT received_at, status
       FROM vendor_message
       WHERE vendor_code = ?
-      ORDER BY received_at DESC
+      ORDER BY rowid DESC
       LIMIT 1
     `)
     .get(vendor) as unknown as Row | undefined;
