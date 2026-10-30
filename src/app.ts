@@ -21,6 +21,19 @@ import {
 
 export const app = new Hono();
 
+app.use("*", async (c, next) => {
+  const startedAt = Date.now();
+  console.log(`[request:start] ${c.req.method} ${c.req.path}`);
+  try {
+    await next();
+  } finally {
+    const durationMs = Date.now() - startedAt;
+    console.log(
+      `[request:end] ${c.req.method} ${c.req.path} ${c.res.status} ${durationMs}ms`,
+    );
+  }
+});
+
 app.use(
   "/api/v1/dashboard/*",
   cors({
