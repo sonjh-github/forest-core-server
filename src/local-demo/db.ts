@@ -1562,16 +1562,15 @@ export function listLocalVendorMessages(
 
 
 export function latestLocalSlenoPositions(): VendorIntegrationMessageRow[] {
-  // One indexed lookup per registered device prevents repeated recent packets
-  // from crowding older last-known positions out of a global LIMIT.
   const rows = localDb().prepare(`
-    SELECT * FROM vendor_message WHERE request_id IN (
-      SELECT (SELECT request_id FROM vendor_message
-        WHERE source_device_id = a.asset_id AND vendor_code = 'JININFRA'
-          AND payload_type = 'RTK_POSITION' AND status = 'PERSISTED'
-        ORDER BY received_at DESC LIMIT 1)
-      FROM asset a WHERE a.vendor_code = 'JININFRA'
-    )`).all() as unknown as Row[];
+    SELECT *
+    FROM vendor_message
+    WHERE vendor_code = 'JININFRA'
+      AND payload_type = 'RTK_POSITION'
+      AND status = 'PERSISTED'
+    ORDER BY occurred_at DESC
+    LIMIT 200
+  `).all() as unknown as Row[];
   return rows.map(row => ({
     request_id: String(row.request_id), event_external_id: optionalText(row.event_external_id),
     payload_type: optionalText(row.payload_type), source_device_id: optionalText(row.source_device_id),
