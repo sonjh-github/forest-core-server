@@ -229,8 +229,8 @@ function initSchema(
       received_at DESC
     );
 
-    CREATE INDEX IF NOT EXISTS idx_vendor_message_device_occurred
-    ON vendor_message(source_device_id, occurred_at DESC, received_at DESC)
+    CREATE INDEX IF NOT EXISTS idx_vendor_message_device_epoch
+    ON vendor_message(source_device_id, julianday(occurred_at) DESC, julianday(received_at) DESC)
     WHERE status = 'PERSISTED' AND payload_type = 'RTK_POSITION';
 
     CREATE INDEX IF NOT EXISTS idx_vendor_message_vendor_occurred
@@ -1571,12 +1571,12 @@ export function latestLocalSlenoPositions(): VendorIntegrationMessageRow[] {
     SELECT asset_id FROM asset WHERE vendor_code = 'JININFRA'
   `).all() as unknown as Row[];
   const latest = db.prepare(`
-    SELECT * FROM vendor_message INDEXED BY idx_vendor_message_device_occurred
+    SELECT * FROM vendor_message INDEXED BY idx_vendor_message_device_epoch
     WHERE source_device_id = ?
       AND vendor_code = 'JININFRA'
       AND payload_type = 'RTK_POSITION'
       AND status = 'PERSISTED'
-    ORDER BY occurred_at DESC, received_at DESC
+    ORDER BY julianday(occurred_at) DESC, julianday(received_at) DESC
     LIMIT 1
   `);
   const rows = assets.flatMap((asset) => {

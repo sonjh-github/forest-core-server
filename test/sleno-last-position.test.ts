@@ -44,6 +44,7 @@ test('늦게 저장된 과거 패킷은 지도 최신 위치를 되돌리지 않
     payload:{payloadType:'RTK_POSITION',context:{sourceSystem:'sleno-server',sourceDeviceId:'late-device',occurredAt},
       activePath:[],data:{latitude,longitude:127.33425901,fixType:'RTK_FLOAT'}}});
   insertLocalVendorMessage(packet('latest','2026-10-30T04:20:46Z',36.37345501));
+  insertLocalVendorMessage(packet('earlier-same-day','2026-10-30T12:39:24+09:00',36.37345415));
   insertLocalVendorMessage(packet('backlog','2026-10-13T04:20:46Z',37.42438428));
   const latest=latestLocalSlenoPositions().find(row=>row.source_device_id==='late-device');
   assert.equal(latest?.request_id,'latest');
