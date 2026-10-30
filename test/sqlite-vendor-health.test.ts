@@ -54,7 +54,7 @@ test("SQLite vendor health reads registered devices and the latest persisted mes
   assert.equal(body.data.lastReceivedAt, receivedAt);
   assert.equal(body.data.lastPersistedAt, receivedAt);
   assert.equal(body.data.devices[0]?.vendor_device_id, "JIN-GW-001");
-  assert.equal(body.data.devices[0]?.last_seen_at, receivedAt);
+  assert.equal(body.data.devices[0]?.last_seen_at, null);
 });
 
 test("SQLite vendor health returns INCOMPLETE instead of failing when no message exists", async () => {

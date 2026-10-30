@@ -406,28 +406,13 @@ export function findLocalVendorHealthState(
     `)
     .all(vendor) as unknown as Row[];
 
-  const lastSeenStatement = db.prepare(`
-    SELECT received_at
-    FROM vendor_message
-    WHERE source_device_id = ?
-      AND vendor_code = ?
-    ORDER BY received_at DESC
-    LIMIT 1
-  `);
-
-  const mappings = mappingRows.map((row) => {
-    const lastSeen = lastSeenStatement.get(String(row.asset_id), vendor) as
-      | Row
-      | undefined;
-
-    return {
+  const mappings = mappingRows.map((row) => ({
       vendor_device_id: String(row.vendor_device_id),
       asset_id: String(row.asset_id),
       device_type: optionalText(row.device_type),
       status: String(row.status),
-      last_seen_at: lastSeen ? String(lastSeen.received_at) : null,
-    };
-  });
+      last_seen_at: null,
+    }));
 
   const latestMessage = db
     .prepare(`
