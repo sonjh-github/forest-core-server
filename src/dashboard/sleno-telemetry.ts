@@ -390,13 +390,8 @@ export async function readSlenoDashboardTelemetry(
         : listVendorMessages(vendor, limit, payloadType),
   nowMs = Date.now()
 ) {
-  /*
-   * JININFRA -> Core 요청이 들어온 순간 확보한
-   * 실제 RTK_POSITION을 최우선으로 사용한다.
-   *
-   * DB 장애/지연 중에도 지도 마커가
-   * 실제 수신 위치를 표시할 수 있다.
-   */
+  // The map polls persisted positions; live rows are only a fallback while
+  // the first write is in flight or the database cannot be read.
   const liveRows =
     readLiveSlenoRows();
 
@@ -407,17 +402,7 @@ export async function readSlenoDashboardTelemetry(
       nowMs
     );
 
-  if (liveTelemetry.length > 0) {
-    return liveTelemetry;
-  }
-
-  /*
-   * Core 재시작 직후 아직 live packet이 없을 때만
-   * 기존 persisted DB 데이터를 조회한다.
-   *
-   * DB 장애가 관제 API 전체를 붙잡지 않도록
-   * 1.2초 상한을 둔다.
-   */
+  // Bound the database read so a storage fault cannot hold up the map API.
   let timer:
     ReturnType<typeof setTimeout>
     | null = null;
@@ -451,11 +436,12 @@ export async function readSlenoDashboardTelemetry(
       clearTimeout(timer);
     }
 
-    return mapSlenoPositionRows(
+    const persistedTelemetry = mapSlenoPositionRows(
       eventId,
       rows,
       nowMs
     );
+    return persistedTelemetry.length > 0 ? persistedTelemetry : liveTelemetry;
   } catch (error) {
     if (timer) {
       clearTimeout(timer);
@@ -466,6 +452,6 @@ export async function readSlenoDashboardTelemetry(
       error
     );
 
-    return [];
+    return liveTelemetry;
   }
 }

@@ -129,10 +129,7 @@ test(
         ),
       );
 
-    assert.equal(
-      databaseReaderCalled,
-      false,
-    );
+    assert.equal(databaseReaderCalled, true);
 
     assert.equal(
       result.length,
@@ -179,3 +176,28 @@ test(
     clearLiveSlenoRows();
   },
 );
+
+test("지도 API는 live 수신 캐시보다 DB 저장 위치를 우선한다", async () => {
+  const { clearLiveSlenoRows, rememberLiveSleno } = await import("../src/device/live-sleno.js");
+  const { readSlenoDashboardTelemetry } = await import("../src/dashboard/sleno-telemetry.js");
+  clearLiveSlenoRows();
+  const occurredAt = "2026-10-30T04:20:46.000Z";
+  const request = {
+    payloadType: "RTK_POSITION",
+    context: { eventExternalId: "persisted-test", sourceSystem: "sleno-server", occurredAt,
+      sourceDeviceId: "SIM-RTK-01" },
+    relatedDeviceIds: [], activePath: [],
+    data: { latitude: 36.37345501, longitude: 127.33425901, fixType: "RTK_FLOAT" },
+  };
+  rememberLiveSleno("JININFRA", request, [{ vendorDeviceId: "SIM-RTK-01", assetId: "asset-1",
+    mapped: true, assetExists: true, mappingStatus: "ACTIVE" }]);
+  const rows = await readSlenoDashboardTelemetry("event", async () => [{
+    request_id: "stored-1", event_external_id: "persisted-test", payload_type: "RTK_POSITION",
+    source_device_id: "asset-1", occurred_at: occurredAt, received_at: occurredAt,
+    status: "PERSISTED", payload: { ...request, context: { ...request.context, sourceDeviceId: "asset-1" } },
+  }], Date.parse(occurredAt) + 1000);
+  assert.equal(rows.length, 1);
+  assert.equal((rows[0].attributes as Record<string, unknown>).persistenceStatus, "PERSISTED");
+  assert.equal((rows[0].attributes as Record<string, unknown>).requestId, "stored-1");
+  clearLiveSlenoRows();
+});
