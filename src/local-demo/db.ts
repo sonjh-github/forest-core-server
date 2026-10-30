@@ -370,6 +370,60 @@ export function localDbHealth():
   return true;
 }
 
+export function findLocalVendorHealthState(
+  vendor: ExternalVendor,
+) {
+  const mappings = localDb()
+    .prepare(`
+      SELECT
+        vendor_device_id,
+        asset_id,
+        device_type,
+        COALESCE(mapping_status, 'ACTIVE') AS status,
+        (
+          SELECT MAX(message.received_at)
+          FROM vendor_message AS message
+          WHERE message.vendor_code = asset.vendor_code
+            AND (
+              message.source_device_id = asset.asset_id
+              OR message.source_device_id = asset.vendor_device_id
+            )
+        ) AS last_seen_at
+      FROM asset
+      WHERE vendor_code = ?
+        AND vendor_device_id IS NOT NULL
+        AND status <> 'INACTIVE'
+      ORDER BY asset_code
+    `)
+    .all(vendor) as unknown as Row[];
+
+  const latestMessage = localDb()
+    .prepare(`
+      SELECT received_at, status
+      FROM vendor_message
+      WHERE vendor_code = ?
+      ORDER BY received_at DESC
+      LIMIT 1
+    `)
+    .get(vendor) as unknown as Row | undefined;
+
+  return {
+    mappings: mappings.map((row) => ({
+      vendor_device_id: String(row.vendor_device_id),
+      asset_id: String(row.asset_id),
+      device_type: optionalText(row.device_type),
+      status: String(row.status),
+      last_seen_at: optionalText(row.last_seen_at),
+    })),
+    latestMessage: latestMessage
+      ? {
+          received_at: String(latestMessage.received_at),
+          status: String(latestMessage.status),
+        }
+      : null,
+  };
+}
+
 export function listAssetTypes() {
   return (
     localDb()

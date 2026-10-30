@@ -1,13 +1,23 @@
 import { config } from "../config.js";
+import { findLocalVendorHealthState, localDbHealth } from "../local-demo/db.js";
 import type { ExternalVendor } from "../types.js";
 import { supabase } from "./client.js";
 
 export async function checkDatabaseConnection() {
+  if (config.dbMode === "sqlite") {
+    localDbHealth();
+    return;
+  }
+
   const { error } = await supabase.schema(config.healthSchema).from(config.healthTable).select("*", { head: true, count: "exact" });
   if (error) throw error;
 }
 
 export async function findVendorHealthState(vendor: ExternalVendor) {
+  if (config.dbMode === "sqlite") {
+    return findLocalVendorHealthState(vendor);
+  }
+
   const [mappings, messages] = await Promise.all([
     supabase.schema("core").from("vendor_device_mapping").select("vendor_device_id,asset_id,device_type,status,last_seen_at").eq("vendor_code", vendor),
     supabase.schema("core").from("vendor_integration_message").select("received_at,status").eq("vendor_code", vendor).order("received_at", { ascending: false }).limit(1),
