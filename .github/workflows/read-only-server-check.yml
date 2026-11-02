@@ -1,0 +1,27 @@
+name: Read only server check
+on:
+  push:
+    branches: [codex/read-only-server-check-20261102]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            date -Is
+            uptime
+            free -m
+            df -h / /home/ubuntu/server/forest-core-server/data
+            docker ps -a --format '{{.Names}} {{.Status}}'
+            docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}} PIDS={{.PIDs}}'
+            docker inspect --format 'status={{.State.Status}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} started={{.State.StartedAt}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' forest-core-server
+            curl -s -o /dev/null --max-time 5 -w 'local core http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health || true
+            docker logs --since 2h --tail 10000 forest-core-server 2>&1 | python3 -c 'import sys,re,collections; lines=sys.stdin.read().splitlines(); patterns=["SQLITE_BUSY","SQLITE_LOCKED","SQLITE_FULL","SQLITE_CORRUPT","out of memory","heap out","FATAL ERROR","ECONNREFUSED","ETIMEDOUT","Error:","listening on"]; print("CORE_LOG_CATEGORIES",{p:sum(p.lower() in s.lower() for s in lines) for p in patterns}); print("STACK_FRAMES",collections.Counter(m.group(0) for s in lines for m in re.finditer(r"(?:/app/)?dist/[A-Za-z0-9_./-]+:\d+:\d+",s)))'
+            ps -eo pid,ppid,pcpu,pmem,stat,comm --sort=-pcpu | head -20
