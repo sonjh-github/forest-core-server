@@ -1,11 +1,14 @@
-name: Read only server check
+name: Update requested disaster location
 on:
   push:
     branches: [codex/read-only-server-check-20261102]
 permissions:
   contents: read
+concurrency:
+  group: forest-core-server-production
+  cancel-in-progress: false
 jobs:
-  inspect:
+  update-location:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -15,13 +18,27 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            date -Is
-            uptime
-            free -m
-            df -h / /home/ubuntu/server/forest-core-server/data
-            docker ps -a --format '{{.Names}} {{.Status}}'
-            docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}} PIDS={{.PIDs}}'
-            docker inspect --format 'status={{.State.Status}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} started={{.State.StartedAt}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' forest-core-server
-            curl -s -o /dev/null --max-time 5 -w 'local core http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health || true
-            docker logs --since 2h --tail 10000 forest-core-server 2>&1 | python3 -c 'import sys,re,collections; lines=sys.stdin.read().splitlines(); patterns=["SQLITE_BUSY","SQLITE_LOCKED","SQLITE_FULL","SQLITE_CORRUPT","out of memory","heap out","FATAL ERROR","ECONNREFUSED","ETIMEDOUT","Error:","listening on"]; print("CORE_LOG_CATEGORIES",{p:sum(p.lower() in s.lower() for s in lines) for p in patterns}); print("STACK_FRAMES",collections.Counter(m.group(0) for s in lines for m in re.finditer(r"(?:/app/)?dist/[A-Za-z0-9_./-]+:\d+:\d+",s)))'
-            ps -eo pid,ppid,pcpu,pmem,stat,comm --sort=-pcpu | head -20
+            python3 - <<'PY'
+            import sqlite3,json,pathlib,datetime
+            root=pathlib.Path('/home/ubuntu/server/forest-core-server/data')
+            db=sqlite3.connect(root/'forest.sqlite',timeout=10)
+            event='10000000-0000-4000-8000-000000000001'
+            address='충청남도 예산군 덕산면 상가리 산5-23'
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT metadata_json FROM disaster_event WHERE event_id=?',(event,)).fetchone()
+            assert row is not None,'Existing disaster missing'
+            meta=json.loads(row[0])
+            backup=root/'location-backups'
+            backup.mkdir(exist_ok=True)
+            stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+            (backup/(stamp+'.json')).write_text(json.dumps({'event_id':event,'metadata_json':row[0]},ensure_ascii=False),encoding='utf-8')
+            meta['location_name']=address
+            meta['geometry']={'type':'Point','coordinates':[126.61705287350944,36.72049103394032]}
+            result=db.execute('UPDATE disaster_event SET metadata_json=? WHERE event_id=?',(json.dumps(meta,ensure_ascii=False),event))
+            assert result.rowcount==1
+            db.commit()
+            saved=json.loads(db.execute('SELECT metadata_json FROM disaster_event WHERE event_id=?',(event,)).fetchone()[0])
+            assert saved['location_name']==address and saved['geometry']==meta['geometry']
+            print('DISASTER_LOCATION_UPDATE_VERIFIED')
+            db.close()
+            PY
