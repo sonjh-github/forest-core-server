@@ -1,4 +1,4 @@
-name: Update requested disaster location
+name: Assign requested vehicle
 on:
   push:
     branches: [codex/read-only-server-check-20261102]
@@ -8,7 +8,7 @@ concurrency:
   group: forest-core-server-production
   cancel-in-progress: false
 jobs:
-  update-location:
+  assign:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -19,26 +19,18 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             python3 - <<'PY'
-            import sqlite3,json,pathlib,datetime
-            root=pathlib.Path('/home/ubuntu/server/forest-core-server/data')
-            db=sqlite3.connect(root/'forest.sqlite',timeout=10)
+            import sqlite3,uuid,datetime
+            db=sqlite3.connect('/home/ubuntu/server/forest-core-server/data/forest.sqlite',timeout=10)
+            db.execute('PRAGMA foreign_keys=ON')
             event='10000000-0000-4000-8000-000000000001'
-            address='충청남도 예산군 덕산면 상가리 산5-23'
+            asset='e89eb39e-4229-459a-b57e-5f22318cd881'
             db.execute('BEGIN IMMEDIATE')
-            row=db.execute('SELECT metadata_json FROM disaster_event WHERE event_id=?',(event,)).fetchone()
-            assert row is not None,'Existing disaster missing'
-            meta=json.loads(row[0])
-            backup=root/'location-backups'
-            backup.mkdir(exist_ok=True)
-            stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
-            (backup/(stamp+'.json')).write_text(json.dumps({'event_id':event,'metadata_json':row[0]},ensure_ascii=False),encoding='utf-8')
-            meta['location_name']=address
-            meta['geometry']={'type':'Point','coordinates':[126.61705287350944,36.72049103394032]}
-            result=db.execute('UPDATE disaster_event SET metadata_json=? WHERE event_id=?',(json.dumps(meta,ensure_ascii=False),event))
-            assert result.rowcount==1
+            assert db.execute('SELECT 1 FROM disaster_event WHERE event_id=?',(event,)).fetchone()
+            assert db.execute('SELECT 1 FROM asset WHERE asset_id=? AND asset_code=?',(asset,'SIM-RTK-CAR-01')).fetchone()
+            now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+            db.execute('INSERT INTO event_resource(event_resource_id,event_id,asset_id,mission,assigned_at,released_at) VALUES(?,?,?,?,?,NULL) ON CONFLICT(event_id,asset_id) DO UPDATE SET released_at=NULL', (str(uuid.uuid4()),event,asset,'차량 위치 송신',now))
             db.commit()
-            saved=json.loads(db.execute('SELECT metadata_json FROM disaster_event WHERE event_id=?',(event,)).fetchone()[0])
-            assert saved['location_name']==address and saved['geometry']==meta['geometry']
-            print('DISASTER_LOCATION_UPDATE_VERIFIED')
+            assert db.execute('SELECT 1 FROM event_resource WHERE event_id=? AND asset_id=? AND released_at IS NULL',(event,asset)).fetchone()
+            print('VEHICLE_ASSIGNMENT_VERIFIED')
             db.close()
             PY
