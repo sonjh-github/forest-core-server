@@ -33,6 +33,7 @@ import {
   slenoIdentities,
   slenoMessages,
   updateMapping,
+  updateAssetName,
 } from "./db.js";
 
 export const localDashboardRoutes =
@@ -192,6 +193,12 @@ localDashboardRoutes.get(
     return c.json({ data: listLocalVendorRequestLogs(limit) });
   },
 );
+
+localDashboardRoutes.put("/assets/:assetId/name", async (c) => {
+  try {
+    return c.json({ data: updateAssetName(c.req.param("assetId"), await readRegistryBody(c)) });
+  } catch (error) { return errorResponse(c, error); }
+});
 
 localDashboardRoutes.get(
   "/assets/:assetId/logs",

@@ -699,6 +699,18 @@ export function findAsset(
     : null;
 }
 
+export function updateAssetName(assetId: string, body: Record<string, unknown>) {
+  if (body.assetName !== null && typeof body.assetName !== "string") {
+    throw new LocalDbError("INVALID_REQUEST", "장비 이름을 입력해 주세요.");
+  }
+  const name = typeof body.assetName === "string" ? body.assetName.trim() : "";
+  if (name.length > 80) throw new LocalDbError("INVALID_REQUEST", "장비 이름은 80자 이내로 입력해 주세요.");
+  const result = localDb().prepare("UPDATE asset SET asset_name=?,updated_at=? WHERE asset_id=?")
+    .run(name || null, new Date().toISOString(), assetId);
+  if (!result.changes) throw new LocalDbError("ASSET_NOT_FOUND", "장비를 찾을 수 없습니다.", 404);
+  return findAsset(assetId);
+}
+
 function assertVendorDeviceAvailable(vendor: string, vendorDeviceId: string, assetId = "") {
   const existing = localDb().prepare(`SELECT asset_id FROM asset
     WHERE vendor_code = ? AND vendor_device_id = ? AND asset_id <> ? LIMIT 1`)
