@@ -1,11 +1,14 @@
-name: Read only core response check
+name: Recover unhealthy core
 on:
   push:
     branches: [codex/read-only-server-check-20261102]
 permissions:
   contents: read
+concurrency:
+  group: forest-core-server-production
+  cancel-in-progress: false
 jobs:
-  inspect:
+  recover:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -15,10 +18,17 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            date -Is
-            docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-core-server forest-vendor-integration forest-front-wildfire
-            docker inspect --format 'status={{.State.Status}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' forest-core-server
-            curl -s -o /dev/null --max-time 5 -w 'local core http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health || true
-            free -m
-            df -h /home/ubuntu/server/forest-core-server/data
-            docker logs --since 30m --tail 3000 forest-core-server 2>&1 | python3 -c 'import sys; rows=sys.stdin.read().splitlines(); print("ERROR_COUNTS", {p:sum(p.lower() in s.lower() for s in rows) for p in ["SQLITE_BUSY","SQLITE_LOCKED","SQLITE_FULL","SQLITE_CORRUPT","out of memory","heap out","FATAL ERROR","Error:"]})'
+            set -eu
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' forest-core-server)
+            if [ "$health" = unhealthy ]; then
+              docker restart --time 10 forest-core-server
+            fi
+            for attempt in $(seq 1 20); do
+              if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:18020/health; then
+                echo 'Core health recovered'
+                break
+              fi
+              sleep 2
+            done
+            docker inspect --format 'status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' forest-core-server
+            curl -fsS -o /dev/null --max-time 5 -w 'core http=%{http_code}\n' http://127.0.0.1:18020/health
