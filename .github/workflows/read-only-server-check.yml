@@ -1,14 +1,11 @@
-name: Assign requested vehicle
+name: Read only core response check
 on:
   push:
     branches: [codex/read-only-server-check-20261102]
 permissions:
   contents: read
-concurrency:
-  group: forest-core-server-production
-  cancel-in-progress: false
 jobs:
-  assign:
+  inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -18,19 +15,10 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            python3 - <<'PY'
-            import sqlite3,uuid,datetime
-            db=sqlite3.connect('/home/ubuntu/server/forest-core-server/data/forest.sqlite',timeout=10)
-            db.execute('PRAGMA foreign_keys=ON')
-            event='10000000-0000-4000-8000-000000000001'
-            asset='e89eb39e-4229-459a-b57e-5f22318cd881'
-            db.execute('BEGIN IMMEDIATE')
-            assert db.execute('SELECT 1 FROM disaster_event WHERE event_id=?',(event,)).fetchone()
-            assert db.execute('SELECT 1 FROM asset WHERE asset_id=? AND asset_code=?',(asset,'SIM-RTK-CAR-01')).fetchone()
-            now=datetime.datetime.now(datetime.timezone.utc).isoformat()
-            db.execute('INSERT INTO event_resource(event_resource_id,event_id,asset_id,mission,assigned_at,released_at) VALUES(?,?,?,?,?,NULL) ON CONFLICT(event_id,asset_id) DO UPDATE SET released_at=NULL', (str(uuid.uuid4()),event,asset,'차량 위치 송신',now))
-            db.commit()
-            assert db.execute('SELECT 1 FROM event_resource WHERE event_id=? AND asset_id=? AND released_at IS NULL',(event,asset)).fetchone()
-            print('VEHICLE_ASSIGNMENT_VERIFIED')
-            db.close()
-            PY
+            date -Is
+            docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-core-server forest-vendor-integration forest-front-wildfire
+            docker inspect --format 'status={{.State.Status}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' forest-core-server
+            curl -s -o /dev/null --max-time 5 -w 'local core http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health || true
+            free -m
+            df -h /home/ubuntu/server/forest-core-server/data
+            docker logs --since 30m --tail 3000 forest-core-server 2>&1 | python3 -c 'import sys; rows=sys.stdin.read().splitlines(); print("ERROR_COUNTS", {p:sum(p.lower() in s.lower() for s in rows) for p in ["SQLITE_BUSY","SQLITE_LOCKED","SQLITE_FULL","SQLITE_CORRUPT","out of memory","heap out","FATAL ERROR","Error:"]})'
