@@ -34,6 +34,7 @@ import {
   slenoMessages,
   updateMapping,
   updateAssetName,
+  updateAssetAudioSession,
 } from "./db.js";
 
 export const localDashboardRoutes =
@@ -197,6 +198,12 @@ localDashboardRoutes.get(
 localDashboardRoutes.put("/assets/:assetId/name", async (c) => {
   try {
     return c.json({ data: updateAssetName(c.req.param("assetId"), await readRegistryBody(c)) });
+  } catch (error) { return errorResponse(c, error); }
+});
+
+localDashboardRoutes.put("/assets/:assetId/audio-session", async (c) => {
+  try {
+    return c.json({ data: updateAssetAudioSession(c.req.param("assetId"), await readRegistryBody(c)) });
   } catch (error) { return errorResponse(c, error); }
 });
 

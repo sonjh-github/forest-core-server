@@ -258,6 +258,11 @@ function initSchema(
     );
   `);
   const eventColumns = db.prepare("PRAGMA table_info(disaster_event)").all() as unknown as Row[];
+  const assetColumns = db.prepare("PRAGMA table_info(asset)").all() as unknown as Row[];
+  if (!assetColumns.some(column => column.name === "audio_session")) {
+    db.exec("ALTER TABLE asset ADD COLUMN audio_session TEXT CHECK(audio_session IS NULL OR audio_session GLOB '[0-9][0-9]')");
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS asset_audio_session_unique ON asset(audio_session) WHERE audio_session IS NOT NULL");
   if (!eventColumns.some((column) => column.name === "metadata_json")) {
     db.exec("ALTER TABLE disaster_event ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'");
   }
@@ -610,6 +615,7 @@ function rowToAsset(
         row.model_name,
       ),
 
+    audio_session: optionalText(row.audio_session),
     specifications:
       jsonObject(
         row.specifications_json,
@@ -711,6 +717,25 @@ export function updateAssetName(assetId: string, body: Record<string, unknown>) 
   return findAsset(assetId);
 }
 
+function audioSessionValue(value: unknown, assetId = ""): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !/^\d{2}$/.test(value.trim())) {
+    throw new LocalDbError("INVALID_AUDIO_SESSION", "오디오 세션은 00~99 두 자리 숫자로 입력하세요.");
+  }
+  const session = value.trim();
+  const duplicate = localDb().prepare("SELECT asset_id FROM asset WHERE audio_session=? AND asset_id<>?").get(session, assetId);
+  if (duplicate) throw new LocalDbError("AUDIO_SESSION_CONFLICT", "다른 장비에 지정된 오디오 세션입니다.", 409);
+  return session;
+}
+
+export function updateAssetAudioSession(assetId: string, body: Record<string, unknown>) {
+  if (!findAsset(assetId)) throw new LocalDbError("ASSET_NOT_FOUND", "장비를 찾을 수 없습니다.", 404);
+  if (!("audioSession" in body)) throw new LocalDbError("INVALID_AUDIO_SESSION", "오디오 세션을 입력하세요.");
+  const session = audioSessionValue(body.audioSession, assetId);
+  localDb().prepare("UPDATE asset SET audio_session=?,updated_at=? WHERE asset_id=?").run(session, new Date().toISOString(), assetId);
+  return findAsset(assetId);
+}
+
 function assertVendorDeviceAvailable(vendor: string, vendorDeviceId: string, assetId = "") {
   const existing = localDb().prepare(`SELECT asset_id FROM asset
     WHERE vendor_code = ? AND vendor_device_id = ? AND asset_id <> ? LIMIT 1`)
@@ -722,6 +747,7 @@ export function createAsset(
   body:
     Record<string, unknown>,
 ) {
+  const audioSession = audioSessionValue(body.audioSession);
   const assetCode =
     requiredText(
       body.assetCode,
@@ -801,6 +827,7 @@ export function createAsset(
           product_name,
           model_name,
           specifications_json,
+          audio_session,
           vendor_code,
           vendor_device_id,
           device_type,
@@ -809,7 +836,7 @@ export function createAsset(
           updated_at
         )
         VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )
       `)
       .run(
@@ -838,6 +865,7 @@ export function createAsset(
             ? body.specifications
             : {},
         ),
+        audioSession,
         vendor,
         vendorDeviceId,
         deviceType,
