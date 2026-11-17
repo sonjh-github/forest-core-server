@@ -1,4 +1,4 @@
-name: Capture vendor ingress timing
+name: Verify outage prevention
 on:
   push:
     branches: [codex/read-only-server-check-20261102]
@@ -21,5 +21,18 @@ jobs:
           printf '%s\n' "$SSH_KEY" > "$keyfile"
           ssh -i "$keyfile" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -eu
-          docker exec forest-core-server node --env-file-if-exists=.env --input-type=module -e 'import {DatabaseSync} from "node:sqlite";import {config} from "./dist/config.js";const db=new DatabaseSync(config.sqlitePath,{readOnly:true});db.exec("PRAGMA busy_timeout=10000");console.log(JSON.stringify(db.prepare("SELECT name,sql FROM sqlite_master WHERE type=? AND name IN (?,?)").all("index","idx_vendor_message_vendor_received","idx_vendor_message_device_received")));db.close();'
+          systemctl is-enabled forest-api-watchdog.timer
+          systemctl is-active forest-api-watchdog.timer
+          systemctl show forest-api-watchdog.service -p Result -p ExecMainStatus
+          docker inspect --format '{{.Name}} health={{.State.Health.Status}}' forest-core-server forest-vendor-integration
+          docker logs --since 5m forest-vendor-integration 2>&1 | python3 -c 'import sys;lines=sys.stdin.read().splitlines();print("worker_ready",sum("[core-log-worker] ready" in x for x in lines));print("worker_errors",sum("[core-log-worker]" in x and "ready" not in x for x in lines))'
+          for attempt in $(seq 1 12); do
+            curl -fsS -o /dev/null --max-time 5 -w 'quality http=%{http_code} time=%{time_total}\n' 'http://127.0.0.1:18020/api/v1/dashboard/network-quality/sleno?limit=2000'
+            curl -fsS -o /dev/null --max-time 5 -w 'vendor-health http=%{http_code} time=%{time_total}\n' 'http://127.0.0.1:18010/JININFRA/health'
+            curl -fsS -o /dev/null --max-time 3 -w 'core-health http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health
+            sleep 3
+          done
+          docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-vendor-integration forest-core-server
+          docker inspect --format '{{.Name}} final health={{.State.Health.Status}}' forest-core-server forest-vendor-integration
+          systemctl show forest-api-watchdog.service -p Result -p ExecMainStatus
           REMOTE
