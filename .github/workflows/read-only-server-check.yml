@@ -1,4 +1,4 @@
-name: Recover unhealthy core
+name: Verify API recovery
 on:
   push:
     branches: [codex/read-only-server-check-20261102]
@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect through native SSH
+      - name: Verify through native SSH
         env:
           SSH_HOST: ${{ secrets.EC2_HOST }}
           SSH_USER: ${{ secrets.EC2_USER }}
@@ -20,19 +20,16 @@ jobs:
           trap 'rm -f "$keyfile"' EXIT
           printf '%s\n' "$SSH_KEY" > "$keyfile"
           ssh -i "$keyfile" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
-          date -Is
-          docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-core-server forest-vendor-integration forest-front-wildfire
-          docker inspect --format 'status={{.State.Status}} oom={{.State.OOMKilled}} started={{.State.StartedAt}} restarts={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' forest-core-server
-          curl -s -o /dev/null --max-time 5 -w 'local core http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health || true
-          free -m
-          df -h /home/ubuntu/server/forest-core-server/data
-          docker logs --since 2h --tail 10000 forest-core-server 2>&1 | python3 -c 'import sys,re; s=sys.stdin.read(); print("error_counts",{k:len(re.findall(k,s,re.I)) for k in ["SQLITE_BUSY","SQLITE_CORRUPT","out of memory","uncaught","TypeError","Error:"]}); a=re.findall(r"\[request:(?:start|end)\] [A-Z]+ /[a-zA-Z0-9/_:-]+(?: [0-9]{3} [0-9]+ms)?",s); print("last_request_markers",a[-12:])'
-          docker exec forest-core-server node --env-file-if-exists=.env --input-type=module -e 'import {DatabaseSync} from "node:sqlite"; import {config} from "./dist/config.js"; const db=new DatabaseSync(config.sqlitePath,{readOnly:true}); for(const idx of [""," INDEXED BY idx_vendor_message_device_received"]) console.log("query_plan",idx||"automatic",db.prepare("EXPLAIN QUERY PLAN SELECT * FROM vendor_message"+idx+" WHERE source_device_id=? AND vendor_code=? AND status=? ORDER BY received_at DESC LIMIT ?").all("no-packets","JININFRA","PERSISTED",100).map(x=>x.detail)); db.close();'
-          health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' forest-core-server)
-          if [ "$health" = unhealthy ]; then docker restart --time 10 forest-core-server; fi
-          for attempt in $(seq 1 15); do
-            if curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:18020/health; then echo 'Core response recovered'; break; fi
-            sleep 2
+          set -eu
+          cd /home/ubuntu/server/forest-core-server
+          git rev-parse --short HEAD
+          docker inspect --format 'health={{.State.Health.Status}} oom={{.State.OOMKilled}}' forest-core-server
+          docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-core-server
+          for attempt in $(seq 1 12); do
+            curl -fsS -o /dev/null --max-time 8 -w 'quality http=%{http_code} time=%{time_total}\n' 'http://127.0.0.1:18020/api/v1/dashboard/network-quality/sleno?limit=2000'
+            curl -fsS -o /dev/null --max-time 3 -w 'health http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health
+            sleep 3
           done
-          curl -s -o /dev/null --max-time 5 -w 'recovered core http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health
+          docker inspect --format 'final health={{.State.Health.Status}}' forest-core-server
+          docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-core-server
           REMOTE
