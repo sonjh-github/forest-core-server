@@ -1,4 +1,4 @@
-name: Verify API recovery
+name: Inspect packet capture tools
 on:
   push:
     branches: [codex/read-only-server-check-20261102]
@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify through native SSH
+      - name: Check capture tools via SSH
         env:
           SSH_HOST: ${{ secrets.EC2_HOST }}
           SSH_USER: ${{ secrets.EC2_USER }}
@@ -20,16 +20,9 @@ jobs:
           trap 'rm -f "$keyfile"' EXIT
           printf '%s\n' "$SSH_KEY" > "$keyfile"
           ssh -i "$keyfile" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
-          set -eu
-          cd /home/ubuntu/server/forest-core-server
-          git rev-parse --short HEAD
-          docker inspect --format 'health={{.State.Health.Status}} oom={{.State.OOMKilled}}' forest-core-server
-          docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-core-server
-          for attempt in $(seq 1 12); do
-            curl -fsS -o /dev/null --max-time 8 -w 'quality http=%{http_code} time=%{time_total}\n' 'http://127.0.0.1:18020/api/v1/dashboard/network-quality/sleno?limit=2000'
-            curl -fsS -o /dev/null --max-time 3 -w 'health http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health
-            sleep 3
-          done
-          docker inspect --format 'final health={{.State.Health.Status}}' forest-core-server
-          docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-core-server
+          date -Is
+          for tool in tcpdump tshark python3; do command -v "$tool" || true; done
+          sudo -n true && echo capture_privileges_available
+          docker inspect --format '{{(index .NetworkSettings.Networks "forest-backend").IPAddress}}' forest-vendor-integration
+          docker network inspect --format '{{.Id}}' forest-backend
           REMOTE
