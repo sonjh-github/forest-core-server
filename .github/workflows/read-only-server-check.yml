@@ -21,18 +21,13 @@ jobs:
           printf '%s\n' "$SSH_KEY" > "$keyfile"
           ssh -i "$keyfile" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -eu
-          systemctl is-enabled forest-api-watchdog.timer
-          systemctl is-active forest-api-watchdog.timer
-          systemctl show forest-api-watchdog.service -p Result -p ExecMainStatus
-          docker inspect --format '{{.Name}} health={{.State.Health.Status}}' forest-core-server forest-vendor-integration
-          docker logs --since 5m forest-vendor-integration 2>&1 | python3 -c 'import sys;lines=sys.stdin.read().splitlines();print("worker_ready",sum("[core-log-worker] ready" in x for x in lines));print("worker_errors",sum("[core-log-worker]" in x and "ready" not in x for x in lines))'
-          for attempt in $(seq 1 12); do
-            curl -fsS -o /dev/null --max-time 5 -w 'quality http=%{http_code} time=%{time_total}\n' 'http://127.0.0.1:18020/api/v1/dashboard/network-quality/sleno?limit=2000'
-            curl -fsS -o /dev/null --max-time 5 -w 'vendor-health http=%{http_code} time=%{time_total}\n' 'http://127.0.0.1:18010/JININFRA/health'
-            curl -fsS -o /dev/null --max-time 3 -w 'core-health http=%{http_code} time=%{time_total}\n' http://127.0.0.1:18020/health
-            sleep 3
-          done
-          docker stats --no-stream --format '{{.Name}} CPU={{.CPUPerc}} MEM={{.MemUsage}}' forest-vendor-integration forest-core-server
-          docker inspect --format '{{.Name}} final health={{.State.Health.Status}}' forest-core-server forest-vendor-integration
-          systemctl show forest-api-watchdog.service -p Result -p ExecMainStatus
+          docker inspect --format '{{.Name}} health={{.State.Health.Status}}' forest-core-server
+          curl -sS --max-time 20 -w '\nprovider-host http=%{http_code} time=%{time_total}\n' 'https://api.open-meteo.com/v1/forecast?latitude=36.72&longitude=126.61&current=temperature_2m&timeformat=unixtime' || true
+          docker exec -i forest-core-server node --input-type=module <<'NODE'
+          import dns from 'node:dns/promises';
+          console.log('dns', await dns.lookup('api.open-meteo.com',{all:true}));
+          for (const url of ['https://api.open-meteo.com/v1/forecast?latitude=36.72&longitude=126.61&current=temperature_2m&timeformat=unixtime','https://api.open-meteo.com/v1/forecast?latitude=36.72049103394032&longitude=126.61705287350944&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation,surface_pressure&wind_speed_unit=ms&timeformat=unixtime&timezone=Asia%2FSeoul']) {
+          const start=Date.now(); try { const r=await fetch(url,{signal:AbortSignal.timeout(20000)}); console.log('provider-container',r.status,Date.now()-start,await r.text()); } catch(e){console.log('provider-error',Date.now()-start,e.message,e.cause?.code);}
+          }
+          NODE
           REMOTE
